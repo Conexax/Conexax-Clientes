@@ -15,11 +15,33 @@ export enum OrderStatus {
 export interface Plan {
   id: string;
   name: string;
-  price: number;
-  interval: 'monthly' | 'yearly';
+  priceQuarterly: number;
+  priceSemiannual: number;
+  priceYearly: number;
+  descriptionQuarterly?: string;
+  descriptionSemiannual?: string;
+  descriptionYearly?: string;
+  observations?: string;
   features: string[];
   recommended: boolean;
   active: boolean;
+  discountPercent?: number;
+  trafficFeePercent?: number;
+  installments?: number;
+  adCredit?: number;
+  monthlyPriceQuarterly?: number;
+  monthlyPriceSemiannual?: number;
+  monthlyPriceYearly?: number;
+  installmentsQuarterly?: number;
+  installmentsSemiannual?: number;
+  installmentsYearly?: number;
+  trafficFeePercentQuarterly?: number;
+  trafficFeePercentSemiannual?: number;
+  trafficFeePercentYearly?: number;
+  adCreditQuarterly?: number;
+  adCreditSemiannual?: number;
+  adCreditYearly?: number;
+  orderIndex?: number;
 }
 
 export interface User {
@@ -41,11 +63,23 @@ export interface Tenant {
   yampiSecret?: string;
   yampiAlias?: string;
   yampiProxyUrl?: string;
+  // OAuth tokens (Yampi Parceiros)
+  yampiOauthAccessToken?: string;
+  yampiOauthRefreshToken?: string;
+  yampiOauthExpiresAt?: string;
   lastSync?: string;
   planId: string; // Referência ao ID do plano
   active: boolean;
   subscriptionStatus: 'active' | 'past_due' | 'canceled';
+  billingCycle?: 'quarterly' | 'semiannual' | 'yearly';
   nextBilling: string;
+  pendingPlanId?: string;
+  pendingBillingCycle?: 'quarterly' | 'semiannual' | 'yearly';
+  pendingPaymentUrl?: string;
+  document?: string;
+  // Admin Stats
+  companyPercentage?: number;
+  cachedGrossRevenue?: number;
 }
 
 export interface Domain {
@@ -59,6 +93,7 @@ export interface Domain {
 
 export interface Coupon {
   id: string;
+  tenantId?: string;
   code: string;
   type: 'percentage' | 'fixed';
   value: number;
@@ -84,9 +119,12 @@ export interface CommSettings {
 
 export interface AbandonedCheckout {
   id: string;
+  tenantId?: string;
+  externalId: string;
   clientName: string;
   email: string;
   phone?: string;
+  product: string;
   value: number;
   date: string;
   items: string;
@@ -106,6 +144,36 @@ export interface Order {
   value: number;
   initials: string;
   couponCode?: string;
+  // Logistics / tracking fields (from Yampi)
+  rawStatusAlias?: string;
+  delivered?: boolean;
+  trackCode?: string;
+  trackUrl?: string;
+  shipmentService?: string;
+  shipmentQuoteId?: number | string;
+  daysDelivery?: number;
+  valueShipment?: number;
+}
+
+
+export interface Category {
+  id: string;
+  tenantId: string;
+  name: string;
+}
+
+export interface Product {
+  id: string;
+  tenantId: string;
+  name: string;
+  sku?: string | null;
+  description?: string | null;
+  price: number;
+  active: boolean;
+  categoryId?: string | null;
+  operationType?: string | null;
+  yampiProductId?: number | null;
+  images?: string[];
 }
 
 export interface AppSettings {
@@ -114,6 +182,26 @@ export interface AppSettings {
   description: string;
   darkMode: boolean;
   currency: string;
+}
+
+
+export interface Goal {
+  id: string;
+  code: string;
+  title: string;
+  targetValue: number;
+  currentValue?: number;
+  achieved?: boolean;
+  progressPercent?: number;
+  missingValue?: number;
+  currency?: string;
+}
+
+export interface GoalProgress {
+  tenantId: string;
+  tenantName: string;
+  totalRevenue: number;
+  goals: Goal[];
 }
 
 export interface AppState {
@@ -129,4 +217,7 @@ export interface AppState {
   influencers: Influencer[];
   commSettings: CommSettings;
   settings: AppSettings;
+  products: Product[];
+  categories: Category[];
+  goalsProgress: GoalProgress | null;
 }

@@ -16,12 +16,17 @@ const TenantManagement: React.FC = () => {
     ownerName: '',
     ownerEmail: '',
     password: '',
-    planId: 'p_pro',
+    planId: 'p_free',
     yampiAlias: '',
     yampiToken: '',
     yampiSecret: '',
-    yampiProxyUrl: ''
+    yampiProxyUrl: '',
+    document: ''
   });
+
+  React.useEffect(() => {
+    actions.syncAllTenants();
+  }, []);
 
   const tenantDomains = useMemo(() => {
     if (!editingTenant?.id) return [];
@@ -36,8 +41,9 @@ const TenantManagement: React.FC = () => {
     } else {
       setEditingTenant(null);
       setFormData({
-        name: '', ownerName: '', ownerEmail: '', password: '', planId: 'p_pro',
-        yampiAlias: '', yampiToken: '', yampiSecret: '', yampiProxyUrl: ''
+        name: '', ownerName: '', ownerEmail: '', password: '', planId: 'p_free',
+        yampiAlias: '', yampiToken: '', yampiSecret: '', yampiProxyUrl: '',
+        document: ''
       });
     }
     setNewDomainUrl('');
@@ -99,50 +105,47 @@ const TenantManagement: React.FC = () => {
         </button>
       </header>
 
-      <div className="glass-panel rounded-2xl overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto">
+      <section className="space-y-4">
+        {/* Desktop Table */}
+        <div className="hidden lg:block glass-panel rounded-2xl overflow-hidden">
           <table className="w-full text-left">
             <thead className="bg-black/40 border-b border-neutral-border/50">
               <tr>
-                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Loja / Proprietário</th>
-                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Acesso (E-mail)</th>
-                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Plano Atual</th>
-                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Yampi</th>
-                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 text-center">Ações</th>
+                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30">Lojista</th>
+                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30">Proprietário</th>
+                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30">Status Conexão</th>
+                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30">Documento / PJ</th>
+                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30 text-center">Gestão</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-border/30">
               {state.tenants.map((t) => (
                 <tr key={t.id} className="hover:bg-white/5 transition-colors group">
-                  <td className="px-8 py-5">
+                  <td className="px-8 py-6">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-slate-800 border border-white/5 flex items-center justify-center text-primary font-black uppercase text-xs">
+                      <div className="w-10 h-10 rounded-xl bg-slate-800 border border-white/5 flex items-center justify-center text-primary font-black uppercase text-xs group-hover:bg-primary/10 group-hover:text-primary transition-all">
                         {t.name.substring(0, 2)}
                       </div>
                       <div>
                         <span className="block text-sm font-bold text-white group-hover:text-primary transition-colors">{t.name}</span>
-                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">{t.ownerName}</span>
+                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{t.id}</span>
                       </div>
                     </div>
                   </td>
-                  <td className="px-8 py-5">
-                    <span className="text-sm font-mono text-slate-400 font-bold">{t.ownerEmail}</span>
-                  </td>
-                  <td className="px-8 py-5">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-white/5 text-slate-300 border border-white/10">
-                      {state.plans.find(p => p.id === t.planId)?.name || 'Sem Plano'}
-                    </span>
-                  </td>
-                  <td className="px-8 py-5">
+                  <td className="px-8 py-6 text-sm text-slate-400 italic">{t.ownerEmail}</td>
+                  <td className="px-8 py-6">
                     <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${t.yampiToken ? 'bg-primary shadow-[0_0_8px_theme(colors.primary)]' : 'bg-slate-700'}`}></span>
-                      <span className="text-xs font-bold text-slate-400">{t.yampiToken ? 'Conectado' : 'Pendente'}</span>
+                      <div className={`w-2 h-2 rounded-full ${t.yampiToken ? 'bg-primary shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]'}`} />
+                      <span className={`text-[10px] font-black uppercase tracking-tighter ${t.yampiToken ? 'text-primary' : 'text-rose-500'}`}>
+                        {t.yampiToken ? 'INTEGRADO YAMPI' : 'AGUARDANDO SYNC'}
+                      </span>
                     </div>
                   </td>
-                  <td className="px-8 py-5">
+                  <td className="px-8 py-6 text-[10px] font-mono text-slate-500 font-bold">{t.document || '---.---.---/--'}</td>
+                  <td className="px-8 py-6">
                     <div className="flex justify-center gap-3">
-                      <button onClick={() => handleOpenModal(t)} className="p-2 bg-white/5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg transition-all"><span className="material-symbols-outlined text-lg">edit</span></button>
-                      <button onClick={() => { if (confirm('Excluir lojista?')) actions.deleteTenant(t.id) }} className="p-2 bg-white/5 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all"><span className="material-symbols-outlined text-lg">delete</span></button>
+                      <button onClick={() => { setEditingTenant(t); setShowModal(true); }} className="p-2.5 bg-white/5 text-slate-500 hover:text-white hover:bg-white/10 rounded-xl transition-all"><span className="material-symbols-outlined text-lg">edit</span></button>
+                      <button onClick={() => { if (confirm('Excluir lojista?')) actions.deleteTenant(t.id) }} className="p-2.5 bg-rose-500/5 text-rose-500/50 hover:text-rose-500 hover:bg-rose-500/15 rounded-xl transition-all"><span className="material-symbols-outlined text-lg">delete</span></button>
                     </div>
                   </td>
                 </tr>
@@ -150,7 +153,62 @@ const TenantManagement: React.FC = () => {
             </tbody>
           </table>
         </div>
-      </div>
+
+        {/* Mobile Cards */}
+        <div className="lg:hidden space-y-4">
+          {state.tenants.map((t) => (
+            <div key={t.id} className="glass-panel p-6 rounded-2xl border-white/5 space-y-5">
+              <div className="flex justify-between items-start">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-black uppercase text-sm">
+                    {t.name.substring(0, 2)}
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white leading-tight">{t.name}</h4>
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t.id}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { setEditingTenant(t); setShowModal(true); }} className="w-10 h-10 flex items-center justify-center bg-white/5 text-slate-400 rounded-xl">
+                    <span className="material-symbols-outlined text-lg">edit</span>
+                  </button>
+                  <button onClick={() => { if (confirm('Excluir lojista?')) actions.deleteTenant(t.id) }} className="w-10 h-10 flex items-center justify-center bg-rose-500/10 text-rose-500 rounded-xl">
+                    <span className="material-symbols-outlined text-lg">delete</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 py-4 border-y border-white/5">
+                <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  <span>Proprietário</span>
+                  <span className="text-slate-300 italic normal-case font-bold">{t.ownerEmail}</span>
+                </div>
+                <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  <span>Documento</span>
+                  <span className="text-slate-300 font-mono font-bold">{t.document || '---.---.---/--'}</span>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center bg-black/20 p-4 rounded-xl border border-white/5">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Status de Integração</span>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${t.yampiToken ? 'bg-primary shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]'}`} />
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${t.yampiToken ? 'text-primary' : 'text-rose-500'}`}>
+                    {t.yampiToken ? 'CONECTADO' : 'PENDENTE'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {state.tenants.length === 0 && (
+          <div className="text-center py-20 glass-panel rounded-2xl border-dashed">
+            <span className="material-symbols-outlined text-slate-700 text-6xl mb-4">storefront</span>
+            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Nenhum lojista cadastrado</p>
+          </div>
+        )}
+      </section>
 
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
@@ -187,12 +245,30 @@ const TenantManagement: React.FC = () => {
                     <input type="text" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary" value={formData.password || ''} onChange={e => setFormData({ ...formData, password: e.target.value })} placeholder={editingTenant ? "Nova senha (opcional)" : "Senha inicial"} />
                   </div>
                   <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">CPF / CNPJ (Documento)</label>
+                    <input type="text" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary" value={formData.document || ''} onChange={e => setFormData({ ...formData, document: e.target.value })} placeholder="000.000.000-00" />
+                  </div>
+                  <div className="space-y-2">
                     <label className="text-[10px] font-bold text-slate-500 uppercase">Atribuir Plano Comercial</label>
                     <select className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary" value={formData.planId} onChange={e => setFormData({ ...formData, planId: e.target.value })}>
                       {state.plans.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} (R$ {p.price})</option>
+                        <option key={p.id} value={p.id}>{p.name} (R$ {p.priceQuarterly})</option>
                       ))}
                     </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Percentual da Empresa (%)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary"
+                      value={formData.companyPercentage || ''}
+                      onChange={e => setFormData({ ...formData, companyPercentage: parseFloat(e.target.value) })}
+                      placeholder="Ex: 10"
+                    />
+                    <p className="text-[9px] text-slate-500">Percentual sobre o faturamento bruto para cálculo de lucro.</p>
                   </div>
                 </div>
 
@@ -232,6 +308,64 @@ const TenantManagement: React.FC = () => {
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-slate-500 uppercase">User Secret Key (Chave Secreta)</label>
                     <input type="password" className="w-full bg-black/20 border-neutral-border rounded-xl px-4 py-3 text-xs text-slate-300 font-mono" value={formData.yampiSecret} onChange={e => setFormData({ ...formData, yampiSecret: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Conectar via Yampi Parceiros (OAuth)</label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!editingTenant?.id) { setLocalError("Salve o lojista antes de conectar via OAuth."); return; }
+                          // PKCE: generate verifier & challenge, store verifier + tenantId, then redirect to Yampi authorize
+                          const randomString = (len = 128) => {
+                            const arr = new Uint8Array(len);
+                            crypto.getRandomValues(arr);
+                            return Array.from(arr).map(n => ('0' + (n % 36).toString(36)).slice(-1)).join('');
+                          };
+                          const base64url = (buffer: ArrayBuffer) => {
+                            const s = String.fromCharCode(...new Uint8Array(buffer));
+                            return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+                          };
+                          (async () => {
+                            const code_verifier = randomString(64);
+                            const enc = new TextEncoder();
+                            const digest = await crypto.subtle.digest('SHA-256', enc.encode(code_verifier));
+                            const code_challenge = base64url(digest);
+                            // store verifier and tenant id temporarily
+                            sessionStorage.setItem('yampi_code_verifier', code_verifier);
+                            sessionStorage.setItem('yampi_oauth_tenant', editingTenant.id!);
+                            const clientId = import.meta.env.VITE_YAMPI_CLIENT_ID;
+                            const authorizeUrl = import.meta.env.VITE_YAMPI_AUTHORIZE_URL;
+                            const redirectUri = `${window.location.origin}/#/yampi-callback`;
+                            const params = new URLSearchParams({
+                              client_id: clientId,
+                              response_type: 'code',
+                              redirect_uri: redirectUri,
+                              code_challenge: code_challenge,
+                              code_challenge_method: 'S256',
+                              scope: 'read write'
+                            });
+                            window.location.href = `${authorizeUrl}?${params.toString()}`;
+                          })();
+                        }}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700"
+                      >
+                        Conectar (OAuth)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // quick-clear stored verifier/tenant
+                          sessionStorage.removeItem('yampi_code_verifier');
+                          sessionStorage.removeItem('yampi_oauth_tenant');
+                          setLocalError(null);
+                        }}
+                        className="px-4 py-2 bg-white/5 text-slate-400 rounded-xl text-xs font-bold hover:text-white"
+                      >
+                        Limpar PKCE
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-500 italic">Use este fluxo para conectar sua conta via Yampi Parceiros (OAuth PKCE). Configure <code className="bg-black/20 px-1">VITE_YAMPI_CLIENT_ID</code> e <code className="bg-black/20 px-1">VITE_YAMPI_AUTHORIZE_URL</code> no seu .env.local.</p>
                   </div>
                 </div>
               </div>

@@ -26,7 +26,7 @@ const Billing: React.FC = () => {
           className="flex items-center gap-2 px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-slate-300 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30"
         >
           <span className={`material-symbols-outlined text-sm ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
-          {isSyncing ? 'Sincronizando...' : 'Sincronizar Manualmente'}
+          {isSyncing ? 'Atualizando...' : 'Atualizar'}
         </button>
       </header>
 
@@ -63,24 +63,59 @@ const Billing: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-          <div className="glass-panel p-8 rounded-3xl bg-primary/5 border-primary/20">
-            <h4 className="text-lg font-black text-white mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">security</span> Gerenciamento de Acesso
+          <div className="glass-panel p-8 rounded-3xl bg-neutral-900/50 border-neutral-border">
+            <h4 className="text-lg font-black text-white mb-6 flex items-center gap-2">
+              <span className="w-1 h-6 bg-primary rounded-full"></span> Integração Yampi
             </h4>
-            <p className="text-sm text-slate-400 leading-relaxed mb-6 font-medium">
-              Por questões de segurança corporativa, as chaves de API (<code className="bg-black/40 px-1">User-Token</code> e <code className="bg-black/40 px-1">User-Secret-Key</code>) são criptografadas e mantidas sob custódia da Conexx.
-            </p>
-            <div className="p-4 bg-black/40 rounded-xl border border-white/5 text-[11px] text-slate-500">
-              Caso precise atualizar suas credenciais da Yampi, solicite a alteração através do e-mail de suporte: <span className="text-white">suporte@conexxhub.com.br</span>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Alias da Loja</label>
+                <input
+                  type="text"
+                  placeholder="ex: minha-loja"
+                  className="w-full bg-neutral-900 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary/50 transition-colors"
+                  defaultValue={state.activeTenant?.yampiAlias || ''}
+                  onChange={(e) => actions.saveTenant({ ...state.activeTenant, id: state.activeTenant?.id || '', yampiAlias: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Token (User Token)</label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••••••"
+                  className="w-full bg-neutral-900 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary/50 transition-colors"
+                  defaultValue={state.activeTenant?.yampiToken || ''}
+                  onChange={(e) => actions.saveTenant({ ...state.activeTenant, id: state.activeTenant?.id || '', yampiToken: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Segredo (User Secret Key)</label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••••••"
+                  className="w-full bg-neutral-900 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary/50 transition-colors"
+                  defaultValue={state.activeTenant?.yampiSecret || ''}
+                  onChange={(e) => actions.saveTenant({ ...state.activeTenant, id: state.activeTenant?.id || '', yampiSecret: e.target.value })}
+                />
+              </div>
+
+              <div className="pt-4">
+                <button
+                  onClick={() => actions.syncYampi()}
+                  className="w-full py-4 bg-primary text-neutral-950 font-black uppercase tracking-wide rounded-xl hover:bg-primary-hover transition-colors shadow-lg shadow-primary/20"
+                >
+                  Salvar e Conectar
+                </button>
+              </div>
+
+              <p className="text-[10px] text-slate-600 font-medium text-center mt-4">
+                Suas credenciais são criptografadas e armazenadas com segurança.
+              </p>
             </div>
           </div>
-
-          {!isAdmin && (
-            <div className="p-8 border border-dashed border-neutral-border rounded-3xl text-center">
-              <span className="material-symbols-outlined text-slate-700 text-4xl mb-4">lock</span>
-              <p className="text-xs font-bold text-slate-600 uppercase tracking-widest">Modo de Acesso: Lojista</p>
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -1,10 +1,57 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, AreaChart, Area } from 'recharts';
+import { OrderStatus } from '../types';
+import AdminGoalsSection from '../components/AdminGoalsSection';
+import DateRangeFilter from '../components/DateRangeFilter';
 
 const Performance: React.FC = () => {
-  const { stats, state } = useData();
+  const { state, stats, actions, isSyncing } = useData();
+  const [dateRange, setDateRange] = useState({
+    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
+    endDate: new Date().toISOString()
+  });
+  const [goalsReport, setGoalsReport] = useState<any[]>([]);
+  const [loadingGoals, setLoadingGoals] = useState(false);
+
+  useEffect(() => {
+    const loadGoals = async () => {
+      setLoadingGoals(true);
+      // Goals should always reflect TOTAL all-time revenue
+      const allTimeStart = new Date('2020-01-01').toISOString();
+      const allTimeEnd = new Date().toISOString();
+      const data = await actions.fetchGoalsProgress(allTimeStart, allTimeEnd);
+      setGoalsReport(data || []);
+      setLoadingGoals(false);
+    };
+    loadGoals();
+  }, [isSyncing]); // Refresh after sync, but independent of date filter
+
+  // Filtered stats for the summary cards
+  const filteredOrders = React.useMemo(() => {
+    return (state.orders || []).filter(o => {
+      const orderDate = new Date(o.date);
+      return orderDate >= new Date(dateRange.startDate) && orderDate <= new Date(dateRange.endDate);
+    });
+  }, [state.orders, dateRange]);
+
+  const approvedOrders = React.useMemo(() => {
+    return filteredOrders.filter(o => o.status === OrderStatus.APROVADO);
+  }, [filteredOrders]);
+
+  const filteredAbandoned = React.useMemo(() => {
+    return (state.abandonedCheckouts || []).filter(a => {
+      const abandonDate = new Date(a.date);
+      return abandonDate >= new Date(dateRange.startDate) && abandonDate <= new Date(dateRange.endDate);
+    });
+  }, [state.abandonedCheckouts, dateRange]);
+
+  const periodRevenue = approvedOrders.reduce((sum, o) => sum + o.value, 0);
+  const periodConversion = (filteredOrders.length + filteredAbandoned.length) > 0
+    ? (approvedOrders.length / (filteredOrders.length + filteredAbandoned.length)) * 100
+    : 0;
+  const periodAvgTicket = approvedOrders.length > 0 ? periodRevenue / approvedOrders.length : 0;
 
   return (
     <div className="space-y-12">
@@ -13,17 +60,22 @@ const Performance: React.FC = () => {
           <h2 className="text-4xl font-black tracking-tight text-white mb-2">Relatórios de <span className="text-primary">Performance</span></h2>
           <p className="text-slate-400 font-medium">Análise avançada de métricas e conversões sincronizadas da Yampi.</p>
         </div>
-        <div className="flex items-center gap-3 bg-panel-dark border border-neutral-border p-1.5 rounded-xl">
-          <button className="px-4 py-2 text-xs font-bold bg-white/5 text-primary rounded-lg shadow-sm">Últimos 7 Dias</button>
+        <div className="flex items-center gap-3">
+          <DateRangeFilter onFilterChange={(start, end) => setDateRange({ startDate: start.toISOString(), endDate: end.toISOString() })} />
         </div>
       </header>
 
+      {/* Admin Goals Section */}
+      <section>
+        <AdminGoalsSection reportData={goalsReport} isLoading={loadingGoals} />
+      </section>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          {label: 'Receita Total', val: `R$ ${stats.totalRevenue.toLocaleString()}`, change: 'Real-time', icon: 'payments'},
-          {label: 'Conversão Global', val: `${stats.conversionRate.toFixed(2)}%`, change: 'Vendas/Checkouts', icon: 'query_stats'},
-          {label: 'Ticket Médio', val: `R$ ${stats.averageTicket.toLocaleString()}`, change: 'Por pedido pago', icon: 'shopping_bag'},
-          {label: 'Carrinhos', val: stats.abandonedCount.toString(), change: 'A recuperar', icon: 'shopping_cart_checkout'},
+          { label: 'Receita no Período', val: `R$ ${periodRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, change: 'Real-time', icon: 'payments' },
+          { label: 'Conversão no Período', val: `${periodConversion.toFixed(2)}%`, change: 'Vendas/Checkouts', icon: 'query_stats' },
+          { label: 'Ticket Médio', val: `R$ ${periodAvgTicket.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, change: 'Pedidos pagos', icon: 'shopping_bag' },
+          { label: 'Carrinhos no Período', val: filteredAbandoned.length.toString(), change: 'A recuperar', icon: 'shopping_cart_checkout' },
         ].map((stat, i) => (
           <div key={i} className="glass-panel p-6 rounded-2xl stat-card">
             <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-2">{stat.label}</p>
@@ -51,12 +103,12 @@ const Performance: React.FC = () => {
                 <AreaChart data={stats.ordersByDay}>
                   <defs>
                     <linearGradient id="perfColor" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10}} />
-                  <Tooltip contentStyle={{backgroundColor: '#0f0f0f', border: 'none', borderRadius: '12px'}} />
+                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f0f0f', border: 'none', borderRadius: '12px' }} />
                   <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={3} fill="url(#perfColor)" />
                 </AreaChart>
               </ResponsiveContainer>
@@ -76,9 +128,9 @@ const Performance: React.FC = () => {
                   <span className="text-white">R$ {prod.revenue.toLocaleString()}</span>
                 </div>
                 <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-primary" 
-                    style={{width: `${(prod.revenue / stats.totalRevenue) * 100}%`}}
+                  <div
+                    className="h-full bg-primary"
+                    style={{ width: `${(prod.revenue / stats.totalRevenue) * 100}%` }}
                   ></div>
                 </div>
                 <p className="text-[9px] text-slate-500 font-black uppercase">{prod.sales} Vendas</p>

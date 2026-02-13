@@ -8,6 +8,7 @@ const UserManagement: React.FC = () => {
   const { state, actions } = useData();
   const isAdmin = state.currentUser?.role === UserRole.CONEXX_ADMIN;
   const [showModal, setShowModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<Partial<User>>({
     name: '',
@@ -45,13 +46,13 @@ const UserManagement: React.FC = () => {
   };
 
   return (
-    <div className="space-y-10">
-      <header className="flex justify-between items-center">
+    <div className="space-y-6 md:space-y-10">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
-          <h2 className="text-4xl font-black text-white mb-2">
+          <h2 className="text-2xl md:text-4xl font-black text-white mb-2">
             Gestão de <span className="text-primary">{isAdmin ? 'Administradores' : 'Equipe'}</span>
           </h2>
-          <p className="text-slate-500 font-medium italic">
+          <p className="text-slate-500 text-sm font-medium italic">
             {isAdmin
               ? 'Adicione usuários com acesso total à plataforma corporativa.'
               : 'Gerencie os membros que podem acessar os dados da sua loja.'}
@@ -59,58 +60,98 @@ const UserManagement: React.FC = () => {
         </div>
         <button
           onClick={handleOpenModal}
-          className="px-6 py-3 bg-primary text-neutral-950 rounded-xl font-black shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all flex items-center gap-2"
+          className="w-full md:w-auto px-6 py-3 bg-primary text-neutral-950 rounded-xl font-black shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all flex items-center justify-center gap-2"
         >
           <span className="material-symbols-outlined">group_add</span>
           {isAdmin ? 'Novo Admin' : 'Novo Membro'}
         </button>
       </header>
 
-      <div className="glass-panel rounded-2xl overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto">
+      <section className="space-y-4">
+        {/* Desktop Table */}
+        <div className="hidden lg:block glass-panel rounded-2xl overflow-hidden shadow-2xl">
           <table className="w-full text-left">
             <thead className="bg-black/40 border-b border-neutral-border/50">
               <tr>
-                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Nome</th>
-                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">E-mail / Login</th>
-                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Nível</th>
+                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Usuário</th>
+                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Acesso / E-mail</th>
+                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500">Cargo / Função</th>
                 <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-border/30">
-              {users.map((u) => (
-                <tr key={u.id} className="hover:bg-white/5 transition-colors group">
+              {users.map((row) => (
+                <tr key={row.email} className="hover:bg-white/5 transition-colors group">
                   <td className="px-8 py-5">
                     <div className="flex items-center gap-4">
-                      <div className="w-9 h-9 rounded-full bg-panel-dark border border-white/5 flex items-center justify-center text-primary font-black uppercase text-xs">
-                        {u.name.substring(0, 1)}
+                      <div className="w-10 h-10 rounded-xl bg-slate-800 border border-white/5 flex items-center justify-center text-primary font-black uppercase text-xs">
+                        {row.name.substring(0, 2)}
                       </div>
-                      <span className="text-sm font-bold text-white">{u.name}</span>
+                      <div>
+                        <span className="block text-sm font-bold text-white group-hover:text-primary transition-colors">{row.name}</span>
+                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">{row.role}</span>
+                      </div>
                     </div>
                   </td>
                   <td className="px-8 py-5">
-                    <span className="text-sm font-mono text-slate-400 font-bold">{u.email}</span>
+                    <span className="text-sm font-mono text-slate-400 font-bold">{row.email}</span>
                   </td>
                   <td className="px-8 py-5">
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ${u.role === UserRole.CONEXX_ADMIN ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-primary/10 text-primary border border-primary/20'
-                      }`}>
-                      {u.role.replace('_', ' ')}
+                    <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-lg text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
+                      {row.role}
                     </span>
                   </td>
-                  <td className="px-8 py-5 text-center">
-                    <button
-                      onClick={() => { if (confirm('Remover este usuário?')) actions.deleteUser(u.id) }}
-                      className={`p-2 bg-white/5 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all ${u.id === 'ADM-01' ? 'invisible' : ''}`}
-                    >
-                      <span className="material-symbols-outlined text-lg">delete</span>
-                    </button>
+                  <td className="px-8 py-5">
+                    <div className="flex justify-center gap-3 opacity-50 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => { setEditingUser(row); setFormData(row); setShowModal(true); }} className="p-2 bg-white/5 text-slate-500 hover:text-primary hover:bg-primary/10 rounded-lg transition-all"><span className="material-symbols-outlined text-lg">edit</span></button>
+                      <button onClick={() => { if (confirm('Remover usuário?')) actions.deleteUser(row.email) }} className={`p-2 bg-white/5 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all ${row.id === 'ADM-01' ? 'invisible' : ''}`}><span className="material-symbols-outlined text-lg">delete</span></button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+
+        {/* Mobile Cards */}
+        <div className="lg:hidden space-y-4">
+          {users.map((row) => (
+            <div key={row.email} className="glass-panel p-6 rounded-2xl border-white/5 space-y-5">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-black uppercase text-sm">
+                    {row.name.substring(0, 2)}
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white">{row.name}</h4>
+                    <p className="text-[10px] font-black text-primary uppercase tracking-widest">{row.role}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { setEditingUser(row); setFormData(row); setShowModal(true); }} className="w-10 h-10 flex items-center justify-center bg-white/5 text-slate-400 rounded-xl">
+                    <span className="material-symbols-outlined text-lg">edit</span>
+                  </button>
+                  <button onClick={() => { if (confirm('Remover usuário?')) actions.deleteUser(row.email) }} className={`w-10 h-10 flex items-center justify-center bg-rose-500/10 text-rose-500 rounded-xl ${row.id === 'ADM-01' ? 'invisible' : ''}`}>
+                    <span className="material-symbols-outlined text-lg">delete</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 bg-black/40 rounded-xl border border-white/5 flex flex-col gap-1">
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">E-mail de Acesso</p>
+                <p className="text-sm font-mono text-slate-300 font-bold truncate">{row.email}</p>
+              </div>
+
+              <div className="flex justify-between items-center bg-black/20 p-4 rounded-xl">
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Função</p>
+                <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-lg text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  {row.role}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">

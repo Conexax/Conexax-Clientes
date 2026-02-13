@@ -6,22 +6,24 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     server: {
-      port: 3000,
-      host: '0.0.0.0',
+      // bind to localhost to avoid permission issues on some systems
+      host: 'localhost',
+      port: 5173,
       proxy: {
-        '/api/yampi': {
-          target: 'https://api.dooki.com.br/v2',
+        // Proxy local API calls to the local Express server in development
+        '/api': {
+          target: 'http://localhost:4000',
           changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api\/yampi/, ''),
-          configure: (proxy, _options) => {
-            proxy.on('proxyReq', (proxyReq, req, _res) => {
-              // Fraud Cloudflare/Yampi WAF by removing localhost traces
-              // IMPORTANT: Origin must match the Target Domain to avoid "Invalid Origin" blocks
-              proxyReq.setHeader('Origin', 'https://api.dooki.com.br');
-              proxyReq.setHeader('Referer', 'https://api.dooki.com.br/');
-              proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-            });
-          },
+          secure: false,
+          rewrite: (path) => path.replace(/^\/api/, '/api'),
+        },
+        // Ensure Yampi calls go to the local backend proxy (server/index.js),
+        // which will forward to the real Dooki/Yampi API with required headers.
+        '/api/yampi': {
+          target: 'http://localhost:4000',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/api\/yampi/, 'api/yampi'),
         },
       }
     },

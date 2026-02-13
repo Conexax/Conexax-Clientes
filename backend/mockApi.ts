@@ -6,7 +6,10 @@ const STORAGE_KEY = 'conexx_enterprise_db_v3';
 
 const getDB = () => {
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) return JSON.parse(saved);
+  if (saved) {
+    const db = JSON.parse(saved);
+    return { ...db, plans: [] }; // Always force plans empty to migrate to Supabase
+  }
 
   return {
     users: [
@@ -14,11 +17,7 @@ const getDB = () => {
     ],
     tenants: [],
     domains: [],
-    plans: [
-      { id: 'p_basic', name: 'Starter', price: 97, interval: 'monthly', recommended: false, active: true, features: ['Até 1.000 pedidos/mês', 'Suporte via E-mail', '1 Domínio Personalizado'] },
-      { id: 'p_pro', name: 'Professional', price: 297, interval: 'monthly', recommended: true, active: true, features: ['Pedidos Ilimitados', 'Suporte WhatsApp 24h', 'Gestão de Influenciadores', 'Recuperação de Carrinhos'] },
-      { id: 'p_enterprise', name: 'Enterprise', price: 997, interval: 'monthly', recommended: false, active: true, features: ['Multi-lojas', 'Gerente de Contas', 'API Customizada', 'Dashboards White-label'] }
-    ],
+    plans: [],
     coupons: [],
     influencers: [],
     commSettings: { emailProvider: 'Yampi Native', smsProvider: 'Yampi Native', activeTriggers: [] }
@@ -29,46 +28,123 @@ const saveDB = (db: any) => localStorage.setItem(STORAGE_KEY, JSON.stringify(db)
 
 export const YampiService = {
   async syncAllData(tenant: Tenant) {
-    // if (!tenant.yampiProxyUrl) throw new Error("URL do Proxy Externo não configurada.");
-    const proxyUrl = tenant.yampiProxyUrl || ''; // Fallback to local Vite proxy
+    /**
+     * IMPORTANTE (Ambiente Frontend):
+     * 
+     * Estávamos usando `tenant.yampiProxyUrl` como base, o que fazia
+     * o navegador chamar diretamente domínios como:
+     *
+     *   https://kairuscamping.com.br/api/yampi/auth/me
+     *
+     * Isso gera erro de CORS, porque o frontend React não pode
+     * conversar diretamente com esse host externo sem que ele esteja
+     * preparado para CORS.
+     *
+     * Para o app rodando no navegador, o fluxo correto é sempre:
+     *   frontend -> /api/yampi/... (no mesmo host)
+     * e então o Vite proxy (em dev) ou um backend próprio em /api/yampi
+     * faz a chamada real para a Yampi.
+     *
+     * Por isso, aqui forçamos o uso de caminho relativo (`''`),
+     * ignorando `yampiProxyUrl` no contexto do app frontend.
+     */
+    const proxyUrl = ''; // Sempre usar /api/yampi/... no browser (Vite proxy / backend cuida do externo)
     try {
       const raw = await YampiBackend.getAllMetrics({
         token: tenant.yampiToken || '',
         secret: tenant.yampiSecret || '',
         alias: tenant.yampiAlias || '',
-        proxyBaseUrl: proxyUrl
+        proxyBaseUrl: proxyUrl,
+        oauthToken: (tenant as any).yampi_oauth_access_token || undefined
       });
-      const orders: Order[] = (raw.orders || []).map((yo: any) => ({
-        id: `#${yo.number}`,
-        tenantId: tenant.id,
-        externalId: yo.id.toString(),
-        client: `${yo.customer?.data?.first_name || 'Cliente'} ${yo.customer?.data?.last_name || ''}`.trim(),
-        email: yo.customer?.data?.email || '',
-        product: yo.items?.data?.[0]?.product_name || 'Produto',
-        date: yo.created_at?.date || new Date().toISOString(),
-        status: (yo.status === 'paid' || yo.status === 'shipping' || yo.status === 'delivered') ? OrderStatus.APROVADO : OrderStatus.AGUARDANDO,
-        paymentMethod: (() => {
-          const method = yo.payment_method || yo.payments?.data?.[0]?.payment_method_id || 'unknown';
-          if (method.includes('pix')) return 'PIX';
-          if (method.includes('card') || method.includes('credit')) return 'Cartão';
-          if (method.includes('billet') || method.includes('boleto')) return 'Boleto';
-          return 'Outros';
-        })(),
-        value: parseFloat(yo.total || '0'),
-        initials: (yo.customer?.data?.first_name?.[0] || 'C').toUpperCase(),
-        couponCode: yo.promotions?.data?.[0]?.code || undefined
-      }));
-      const abandoned: AbandonedCheckout[] = (raw.abandoned || []).map((ya: any) => ({
-        id: ya.id.toString(),
-        clientName: `${ya.customer?.data?.first_name || 'Interessado'} ${ya.customer?.data?.last_name || ''}`.trim(),
-        email: ya.customer?.data?.email || '',
-        phone: ya.customer?.data?.phone || '',
-        value: parseFloat(ya.total || '0'),
-        date: ya.created_at?.date || new Date().toISOString(),
-        items: ya.items?.data?.map((i: any) => i.product_name).join(', ') || 'Carrinho sem itens',
-        recovered: false
-      }));
-      return { orders, abandoned };
+      const orders: Order[] = (raw.orders || []).map((yo: any) => {
+        // A API oficial da Yampi usa `value_total` como campo principal do pedido.
+        // Alguns ambientes/versões podem expor `total`. Usamos ambos como fallback.
+        const rawTotal = yo.value_total ?? yo.total ?? 0;
+
+        // Status costuma vir como objeto (`status.data.alias`) em algumas respostas.
+        const statusAlias =
+          (typeof yo.status === 'string'
+            ? yo.status
+            : yo.status?.data?.alias || '').toLowerCase();
+
+        return {
+          id: `#${yo.number}`,
+          tenantId: tenant.id,
+          externalId: yo.id?.toString?.() || String(yo.id || yo.number),
+          client: `${yo.customer?.data?.first_name || 'Cliente'} ${yo.customer?.data?.last_name || ''}`.trim(),
+          email: yo.customer?.data?.email || '',
+          product:
+            yo.items?.data?.[0]?.product_name ||
+            yo.items?.data?.[0]?.name ||
+            'Produto',
+          date: yo.created_at?.date || yo.created_at || new Date().toISOString(),
+          status:
+            statusAlias === 'paid' ||
+              statusAlias === 'shipping' ||
+              statusAlias === 'delivered'
+              ? OrderStatus.APROVADO
+              : OrderStatus.AGUARDANDO,
+          paymentMethod: (() => {
+            const method =
+              yo.payment_method ||
+              yo.payments?.data?.[0]?.payment_method_id ||
+              yo.payments?.data?.[0]?.payment_method_alias ||
+              'unknown';
+            const m = String(method).toLowerCase();
+            if (m.includes('pix')) return 'PIX';
+            if (m.includes('card') || m.includes('credit')) return 'Cartão';
+            if (m.includes('billet') || m.includes('boleto')) return 'Boleto';
+            if (m.includes('billet') || m.includes('boleto')) return 'Boleto';
+            return 'Cartão'; // Default/Fallback
+          })() as any,
+          value: Number(rawTotal) || 0,
+          initials: (yo.customer?.data?.first_name?.[0] || 'C').toUpperCase(),
+          couponCode:
+            yo.promocode?.data?.code ||
+            yo.promotions?.data?.[0]?.code ||
+            undefined
+        };
+      });
+
+      const abandoned: AbandonedCheckout[] = (raw.abandoned || []).map((ya: any) => {
+        const rawTotal = ya.value_total ?? ya.total ?? 0;
+        return {
+          id: ya.id?.toString?.() || String(ya.id),
+          tenantId: tenant.id,
+          externalId: ya.id?.toString?.() || String(ya.id),
+          clientName: `${ya.customer?.data?.first_name || 'Interessado'} ${ya.customer?.data?.last_name || ''}`.trim(),
+          email: ya.customer?.data?.email || '',
+          phone: ya.customer?.data?.phone || '',
+          product: ya.items?.data?.[0]?.product_name || ya.items?.data?.[0]?.name || 'Carrinho Abandonado',
+          value: Number(rawTotal) || 0,
+          date: ya.created_at?.date || ya.created_at || new Date().toISOString(),
+          items:
+            ya.items?.data
+              ?.map((i: any) => i.product_name || i.name)
+              .join(', ') || 'Carrinho sem itens',
+          recovered: false
+        };
+      });
+      // Attach logistics/tracking fields (if present) to mapped orders
+      const ordersWithLogistics = orders.map((o, idx) => {
+        const yo = (raw.orders || [])[idx] || {};
+        const rawStatus =
+          typeof yo.status === 'string' ? yo.status : yo.status?.data?.alias;
+        return {
+          ...o,
+          rawStatusAlias: rawStatus || undefined,
+          delivered: yo.delivered === true || false,
+          trackCode: yo.track_code || yo.tracking_code || undefined,
+          trackUrl: yo.track_url || yo.tracking_url || undefined,
+          shipmentService: yo.shipment_service || yo.shipping_service || undefined,
+          shipmentQuoteId: yo.shipment_quote_id || undefined,
+          daysDelivery: yo.days_delivery !== undefined ? Number(yo.days_delivery) : undefined,
+          valueShipment: yo.value_shipment !== undefined ? Number(yo.value_shipment) : undefined
+        };
+      });
+
+      return { orders: ordersWithLogistics, abandoned };
     } catch (err: any) {
       throw new Error(err.details || err.error || "Erro de conexão.");
     }
@@ -89,7 +165,84 @@ export const YampiService = {
     }, url);
   },
   async createCouponOnYampi(tenant: Tenant, coupon: Partial<Coupon>) {
-    return { ...coupon, id: coupon.id || 'YCP-' + Date.now(), usageCount: coupon.usageCount || 0 } as Coupon;
+    // If tenant has Yampi alias, try to create promotion on Yampi via proxy
+    if (!tenant.yampiAlias) {
+      return { ...coupon, id: coupon.id || 'YCP-' + Date.now(), usageCount: coupon.usageCount || 0 } as Coupon;
+    }
+    try {
+      const creds = {
+        token: tenant.yampiToken || '',
+        secret: tenant.yampiSecret || '',
+        alias: tenant.yampiAlias || '',
+        proxyBaseUrl: tenant.yampiProxyUrl || ''
+      };
+      const payload: any = {
+        code: coupon.code,
+        description: coupon.code || coupon.id,
+        type: coupon.type || 'percentage',
+        value: coupon.value || 0,
+        active: true
+      };
+      const res = await YampiBackend.createPromotion(creds as any, payload);
+      const created = res?.data || res;
+      return {
+        id: created?.id?.toString?.() || coupon.id || 'YCP-' + Date.now(),
+        code: created?.code || coupon.code,
+        type: coupon.type || 'percentage',
+        value: coupon.value || 0,
+        usageCount: created?.usage_count || 0,
+        active: created?.active ?? true
+      } as Coupon;
+    } catch (e) {
+      // fallback to local-only coupon
+      return { ...coupon, id: coupon.id || 'YCP-' + Date.now(), usageCount: coupon.usageCount || 0 } as Coupon;
+    }
+  },
+
+  async syncCoupons(tenant: Tenant) {
+    if (!tenant.yampiAlias) return [];
+    try {
+      const creds = {
+        token: tenant.yampiToken || '',
+        secret: tenant.yampiSecret || '',
+        alias: tenant.yampiAlias || '',
+        proxyBaseUrl: tenant.yampiProxyUrl || ''
+      };
+      const list = await YampiBackend.listPromotions(creds as any);
+      return (list || []).map((p: any) => ({
+        id: p.id?.toString?.() || p.code,
+        code: p.code,
+        type: p.type || 'percentage',
+        value: parseFloat(p.value || p.amount || 0) || 0,
+        usageCount: p.usage_count || 0,
+        active: p.active ?? true
+      })) as Coupon[];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  async syncProductsFromYampi(tenant: Tenant) {
+    if (!tenant.yampiAlias) return [];
+    try {
+      const creds = {
+        token: tenant.yampiToken || '',
+        secret: tenant.yampiSecret || '',
+        alias: tenant.yampiAlias || '',
+        proxyBaseUrl: tenant.yampiProxyUrl || ''
+      };
+      const list = await YampiBackend.listProducts(creds as any);
+      return (list || []).map((p: any) => ({
+        id: p.id?.toString?.() || p.sku || ('P-' + Date.now()),
+        name: p.name || p.product_name || 'Produto',
+        sku: p.sku || p.id,
+        description: p.description || '',
+        price: parseFloat(p.price || p.value_total || 0) || 0,
+        images: p.images?.data?.map((i: any) => i.url) || [] // Map images
+      }));
+    } catch (e) {
+      return [];
+    }
   }
 };
 

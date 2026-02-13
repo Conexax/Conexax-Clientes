@@ -10,6 +10,7 @@ interface YampiProxyCredentials {
   secret: string;
   alias: string;
   proxyBaseUrl: string;
+  oauthToken?: string;
 }
 
 const REQUEST_TIMEOUT = 15000;
@@ -55,6 +56,8 @@ async function proxyRequest(endpoint: string, credentials: YampiProxyCredentials
         'User-Token': token,
         'User-Secret-Key': secret,
         'Alias': alias,
+        // If an OAuth access token for this tenant exists, prefer Authorization Bearer
+        ...(credentials.oauthToken ? { 'Authorization': `Bearer ${credentials.oauthToken}` } : {}),
         // Some endpoints/versions might use these
         'Token': token,
         'Secret': secret,
@@ -98,33 +101,64 @@ export const YampiBackend = {
   },
 
   async getAllMetrics(creds: YampiProxyCredentials) {
-    try {
-      // Try Strategy A: Alias in Path (Standard Dooki V2)
-      console.log("[YampiBackend] Tentando Estratégia A: Alias no Path");
-      const [ordersRes, abandonedRes] = await Promise.all([
-        proxyRequest('orders?limit=100&include=customer,items,payments', creds),
-        proxyRequest('abandoned-checkouts?limit=100&include=customer,items', creds)
-      ]);
-      return {
-        orders: ordersRes?.data || [],
-        abandoned: abandonedRes?.data || []
-      };
-    } catch (err: any) {
-      // If 404, Try Strategy B: No Alias in Path (V1 / Root style)
-      if (err?.code === 404 || err?.status === 404) {
-        console.log("[YampiBackend] Estratégia A falhou (404). Tentando Estratégia B: Sem Alias no Path");
-        const [ordersRes, abandonedRes] = await Promise.all([
-          proxyRequest('orders?limit=100&include=customer,items,payments', creds, 'GET', undefined, false),
-          proxyRequest('abandoned-checkouts?limit=100&include=customer,items', creds, 'GET', undefined, false)
-        ]);
-        return {
-          orders: ordersRes?.data || [],
-          abandoned: abandonedRes?.data || []
-        };
+    /**
+     * Importante:
+     * A API da Yampi pode não expor todos os recursos (ex: abandoned-checkouts)
+     * para todas as contas. Se tratarmos qualquer 404 como erro fatal, o painel
+     * inteiro quebra.
+     *
+     * Em vez disso:
+     *  - Tentamos buscar pedidos e checkouts abandonados separadamente;
+     *  - Se algum recurso retornar 404, apenas consideramos a lista vazia
+     *    e seguimos com o que estiver disponível.
+     */
+    const result = { orders: [] as any[], abandoned: [] as any[] };
+
+    // Helper para tentar com/sem alias no path
+    const fetchWithFallback = async (endpoint: string, useAliasInPath: boolean = true) => {
+      try {
+        return await proxyRequest(endpoint, creds, 'GET', undefined, useAliasInPath);
+      } catch (err: any) {
+        if (err?.code === 404 || err?.status === 404) {
+          // Se 404 e estávamos usando alias, tenta sem alias
+          if (useAliasInPath) {
+            console.log(`[YampiBackend] ${endpoint} com alias retornou 404. Tentando sem alias...`);
+            return await proxyRequest(endpoint, creds, 'GET', undefined, false);
+          }
+        }
+        throw err;
       }
-      console.error("[YampiBackend] Falha na sincronização via Proxy:", err);
-      throw err;
+    };
+
+    // 1) Pedidos
+    try {
+      console.log("[YampiBackend] Buscando pedidos (orders)...");
+      const ordersRes = await fetchWithFallback('orders?limit=100&include=customer,items,payments', true);
+      result.orders = ordersRes?.data || [];
+    } catch (err: any) {
+      if (err?.code === 404 || err?.status === 404) {
+        console.warn("[YampiBackend] Endpoint de pedidos retornou 404. Seguindo com lista vazia.");
+      } else {
+        console.error("[YampiBackend] Erro ao buscar pedidos:", err);
+        throw err;
+      }
     }
+
+    // 2) Checkouts Abandonados
+    try {
+      console.log("[YampiBackend] Buscando checkouts abandonados...");
+      const abandonedRes = await fetchWithFallback('abandoned-checkouts?limit=100&include=customer,items', true);
+      result.abandoned = abandonedRes?.data || [];
+    } catch (err: any) {
+      if (err?.code === 404 || err?.status === 404) {
+        console.warn("[YampiBackend] Endpoint de abandoned-checkouts retornou 404. Seguindo com lista vazia.");
+      } else {
+        console.error("[YampiBackend] Erro ao buscar abandoned-checkouts:", err);
+        throw err;
+      }
+    }
+
+    return result;
   },
 
   /**
@@ -136,6 +170,57 @@ export const YampiBackend = {
       main: false // Inicialmente como secundário
     });
   },
+
+  /**
+   * List promotions (coupons) on Yampi
+   */
+  async listPromotions(creds: YampiProxyCredentials) {
+    try {
+      // promotions endpoint commonly lives under /promotions or /coupons -> try promotions first
+      const res = await proxyRequest('promotions?limit=100', creds);
+      return res?.data || [];
+    } catch (e: any) {
+      // fallback to coupons endpoint (older)
+      try {
+        const res2 = await proxyRequest('coupons?limit=100', creds);
+        return res2?.data || [];
+      } catch (err) {
+        throw err;
+      }
+    }
+  },
+
+  /**
+   * Create promotion/coupon on Yampi
+   */
+  async createPromotion(creds: YampiProxyCredentials, payload: any) {
+    // Try promotions endpoint
+    try {
+      const res = await proxyRequest('promotions', creds, 'POST', payload);
+      return res;
+    } catch (e: any) {
+      // fallback to coupons
+      try {
+        const res2 = await proxyRequest('coupons', creds, 'POST', payload);
+        return res2;
+      } catch (err) {
+        throw err;
+      }
+    }
+  },
+
+  /**
+   * List products - convenience helper
+   */
+  async listProducts(creds: YampiProxyCredentials) {
+    try {
+      const res = await proxyRequest('catalog/products?limit=100', creds);
+      return res?.data || [];
+    } catch (e: any) {
+      throw e;
+    }
+  }
+,
 
   async verifyCreds(creds: YampiProxyCredentials) {
     try {

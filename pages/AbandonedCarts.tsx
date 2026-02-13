@@ -29,8 +29,9 @@ const AbandonedCarts: React.FC = () => {
         </div>
       </div>
 
-      <section className="glass-panel rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
+      <section className="space-y-4">
+        {/* Desktop Table */}
+        <div className="hidden lg:block glass-panel rounded-2xl overflow-hidden">
           <table className="w-full text-left">
             <thead className="bg-black/40 border-b border-neutral-border/50">
               <tr>
@@ -59,14 +60,54 @@ const AbandonedCarts: React.FC = () => {
                   </td>
                 </tr>
               ))}
-              {state.abandonedCheckouts.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="text-center py-20 text-slate-600 italic font-bold">Nenhum checkout abandonado encontrado na Yampi.</td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
+
+        {/* Mobile Cards */}
+        <div className="lg:hidden space-y-4">
+          {state.abandonedCheckouts.map((cart) => (
+            <div key={cart.id} className="glass-panel p-6 rounded-2xl border-white/5 space-y-4">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="text-lg font-bold text-white">{cart.clientName}</h4>
+                  <p className="text-xs text-slate-500">{cart.email}</p>
+                </div>
+                <div className="flex gap-2">
+                  <a href={`https://wa.me/${cart.phone}`} target="_blank" className="w-10 h-10 flex items-center justify-center bg-emerald-500/10 text-emerald-500 rounded-xl border border-emerald-500/20">
+                    <span className="material-symbols-outlined text-lg">chat</span>
+                  </a>
+                  <button className="w-10 h-10 flex items-center justify-center bg-white/5 text-slate-400 rounded-xl">
+                    <span className="material-symbols-outlined text-lg">mail</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3 bg-black/40 rounded-xl border border-white/5">
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Itens</p>
+                <p className="text-xs text-slate-300 italic">{cart.items}</p>
+              </div>
+
+              <div className="flex justify-between items-center bg-black/20 p-4 rounded-xl">
+                <div>
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Valor</p>
+                  <p className="text-lg font-black text-white">R$ {cart.value.toFixed(2)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Data</p>
+                  <p className="text-xs font-bold text-slate-400">{new Date(cart.date).toLocaleDateString()}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {state.abandonedCheckouts.length === 0 && (
+          <div className="text-center py-24 glass-panel rounded-2xl border-dashed border-neutral-border/30">
+            <span className="material-symbols-outlined text-slate-700 text-6xl mb-4">remove_shopping_cart</span>
+            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Nenhum checkout abandonado</p>
+          </div>
+        )}
       </section>
     </div>
   );
