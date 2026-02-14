@@ -4,7 +4,7 @@ import { BarChart, Bar, ResponsiveContainer, XAxis, Tooltip, Cell, PieChart, Pie
 import { useData } from '../context/DataContext';
 import { OrderStatus } from '../types';
 
-import CompactGoalWidget from '../components/CompactGoalWidget';
+import GoalProgressBar from '../components/GoalProgressBar';
 import DateRangeFilter from '../components/DateRangeFilter';
 
 const StatCard: React.FC<{ label: string; value: string; sub: string; icon: string; color: string }> = ({ label, value, sub, icon, color }) => (
@@ -160,11 +160,7 @@ const Dashboard: React.FC = () => {
         </div>
         <div className="flex flex-col md:flex-row gap-4 items-center w-full lg:w-auto">
           <div className="hidden lg:block border-r border-white/10 pr-6 mr-2">
-            <CompactGoalWidget
-              currentRevenue={goalsData?.total_revenue || 0}
-              goals={goalsData?.goals_status || []}
-              isLoading={loadingGoals}
-            />
+            <GoalProgressBar currentRevenue={state.activeTenant?.cachedGrossRevenue || 0} />
           </div>
           <div className="w-full md:w-auto">
             <DateRangeFilter onFilterChange={(start, end) => setDateRange({ startDate: start.toISOString(), endDate: end.toISOString() })} />

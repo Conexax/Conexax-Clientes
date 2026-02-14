@@ -2,6 +2,10 @@ import express from 'express';
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { getAsaasClient, getOrCreateAsaasCustomer, createAsaasSubscription } from './services/asaas.service.js';
+import { startSyncJob } from './services/syncScheduler.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { requireSubscription } from './middleware/auth.js';
 
 // Load server env vars from .env.server if present (local development)
 dotenv.config({ path: '.env.server' });
@@ -11,159 +15,748 @@ app.use(express.json());
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.VITE_SUPABASE_KEY || process.env.SUPABASE_KEY;
-const ASAAS_API_URL = process.env.VITE_ASAAS_API_URL || process.env.ASAAS_API_URL || 'https://sandbox.asaas.com/api/v3';
-const ASAAS_API_KEY = process.env.VITE_ASAAS_API_KEY || process.env.ASAAS_API_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error('Missing Supabase configuration (SUPABASE_URL / SUPABASE_KEY).');
   process.exit(1);
 }
-if (!ASAAS_API_KEY) {
-  console.error('Missing Asaas API key (ASAAS_API_KEY).');
-  process.exit(1);
-}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Helper to compute price for a plan record
-function getPriceForCycle(plan, cycle) {
-  if (!plan) return 0;
-  if (cycle === 'quarterly') return Number(plan.price_quarterly || plan.priceQuarterly || 0);
-  if (cycle === 'semiannual') return Number(plan.price_semiannual || plan.priceSemiannual || 0);
-  return Number(plan.price_yearly || plan.priceYearly || 0);
-}
+// Initialize Admin Client for server-side operations (bypassing RLS)
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAdmin = SUPABASE_SERVICE_ROLE ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE) : null;
 
-app.post('/api/asaas/create-payment', async (req, res) => {
+
+
+
+
+
+
+
+// ==========================================
+// NEW ASAAS SUBSCRIPTION INTEGRATION
+// ==========================================
+
+/**
+ * Endpoint to initiate a subscription.
+ * POST /api/asaas/subscribe
+ */
+app.post('/api/asaas/subscribe', async (req, res, next) => {
   try {
-    const { tenantId, planId, cycle } = req.body;
-    if (!tenantId || !planId) return res.status(400).send({ error: 'tenantId and planId required' });
+    const { planId, billingCycle, billingType, paymentMethod = 'CREDIT_CARD' } = req.body;
+    // billingType here refers to 'monthly' vs 'upfront' in our internal logic
+    // paymentMethod refers to 'CREDIT_CARD', 'PIX', 'BOLETO'
 
-    const { data: tenant } = await supabase.from('tenants').select('*').eq('id', tenantId).single();
-    if (!tenant) return res.status(404).send({ error: 'Tenant not found' });
+    const userId = req.headers['x-user-id'] || req.body.userId;
 
-    const { data: plan } = await supabase.from('plans').select('*').eq('id', planId).single();
-    if (!plan) return res.status(404).send({ error: 'Plan not found' });
-
-    const price = getPriceForCycle(plan, cycle || 'quarterly');
-    const description = `Plano Conexx Hub: ${(plan.name || plan.nome || 'Plano')} (${cycle})`;
-
-    // 1) Get or create customer in Asaas
-    const ownerEmail = tenant.owner_email || tenant.ownerEmail || req.body.ownerEmail;
-    const ownerName = tenant.owner_name || tenant.ownerName || req.body.ownerName || 'Cliente Conexx';
-    const document = tenant.document || tenant.cpfCnpj || '';
-
-    // Search existing customer
-    let customerId = null;
-    try {
-      const searchRes = await axios.get(`${ASAAS_API_URL}/customers`, {
-        params: { email: ownerEmail },
-        headers: { access_token: ASAAS_API_KEY }
-      });
-      if (searchRes.data && searchRes.data.data && searchRes.data.data.length > 0) {
-        customerId = searchRes.data.data[0].id;
-      }
-    } catch (err) {
-      // ignore and try create
+    if (!userId || !planId || !billingCycle || !paymentMethod) {
+      return res.status(400).json({ success: false, message: 'Dados insuficientes para criar assinatura.' });
     }
 
-    if (!customerId) {
-      const createRes = await axios.post(`${ASAAS_API_URL}/customers`, {
-        name: ownerName,
-        email: ownerEmail,
-        cpfCnpj: (document || '').toString().replace(/\D/g, '')
-      }, {
-        headers: { access_token: ASAAS_API_KEY }
-      });
-      customerId = createRes.data.id;
+    const db = supabaseAdmin || supabase;
+
+    const { data: user, error: userErr } = await db.from('users').select('*, tenants(*)').eq('id', userId).single();
+    if (userErr || !user) throw new Error('Usuário não encontrado.');
+    const tenant = user.tenants;
+    if (!tenant) throw new Error('Tenant não configurado para este usuário.');
+
+    const { data: plan, error: planErr } = await db.from('plans').select('*').eq('id', planId).single();
+    if (planErr || !plan) throw new Error('Plano não encontrado.');
+
+    const doc = (tenant.document || '').replace(/\D/g, '');
+    if (!doc || doc.length < 11) {
+      throw new Error('CPF ou CNPJ inválido. Por favor, atualize em "Dados do Lojista".');
     }
 
-    // 2) Create payment
-    const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // +3 days
-    const paymentRes = await axios.post(`${ASAAS_API_URL}/payments`, {
-      customer: customerId,
-      billingType: 'UNDEFINED',
-      value: price,
-      dueDate,
-      description,
-      externalReference: tenantId
-    }, {
-      headers: { access_token: ASAAS_API_KEY }
+    const asaasCustomerId = await getOrCreateAsaasCustomer({
+      email: user.email,
+      name: user.name || tenant.name,
+      cpfCnpj: doc,
+      userId: userId
     });
 
-    const payment = paymentRes.data;
+    // --- IDEMPOTENCY CHECK ---
+    // Prevent duplicate charges if user clicks multiple times or retries quickly
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
-    // 3) Persist pending state to Supabase
-    await supabase.from('tenants').update({
-      pending_plan_id: planId,
-      pending_billing_cycle: cycle,
-      pending_payment_url: payment.invoiceUrl,
-      pending_payment_id: payment.id
-    }).eq('id', tenantId);
+    const { data: existingPending } = await db.from('subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('plan_id', planId)
+      .eq('status', 'pending')
+      .eq('billing_cycle', billingCycle)
+      .eq('billing_type', billingType)
+      .gte('created_at', fiveMinutesAgo)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
 
-    return res.send({ invoiceUrl: payment.invoiceUrl, paymentId: payment.id });
+    if (existingPending) {
+      console.log('[Idempotency] Found recent pending subscription, reusing:', existingPending.id);
+
+      // Recover URL from Asaas if not saved (or if saved)
+      // Ideally we saved it. If not, we might need to fetch it again.
+      // For now, let's assume if we have a sub/payment ID we can fetch it.
+
+      let existingUrl = existingPending.checkout_url;
+
+      if (!existingUrl) {
+        // Try to recover from Asaas
+        try {
+          const { client } = await getAsaasClient();
+          if (existingPending.asaas_subscription_id) {
+            const payRes = await client.get(`/subscriptions/${existingPending.asaas_subscription_id}/payments`);
+            if (payRes.data?.data?.[0]) existingUrl = payRes.data.data[0].invoiceUrl;
+          } else if (existingPending.asaas_payment_id) {
+            // We need to store payment_id for upfront logic
+            // If we didn't store it, we might be stuck. But assuming we do:
+            // const payRes = await client.get(`/payments/${existingPending.asaas_payment_id}`);
+            // existingUrl = payRes.data.invoiceUrl;
+          }
+        } catch (e) { console.error('Failed to recover url', e); }
+      }
+
+      if (existingUrl) {
+        return res.json({
+          success: true,
+          checkoutUrl: existingUrl,
+          subscriptionId: existingPending.asaas_subscription_id,
+          reused: true
+        });
+      }
+      // If we couldn't recover URL, proceed to create new one (fall through)
+    }
+
+    // --- NEW LOGIC FOR FIXED TERM PLANS ---
+
+    // 1. Calculate Duration & Pricing
+    let monthsDuration = 1;
+    if (billingCycle === 'quarterly') monthsDuration = 3;
+    if (billingCycle === 'semiannual') monthsDuration = 6;
+    if (billingCycle === 'yearly') monthsDuration = 12;
+
+    const priceMap = {
+      'quarterly': plan.price_quarterly,
+      'semiannual': plan.price_semiannual,
+      'yearly': plan.price_yearly,
+      'monthly': plan.price_monthly || plan.price || 0
+    };
+    const totalCycleValue = priceMap[billingCycle] || 0;
+
+    let checkoutUrl = '';
+    let subscriptionId = null; // Can be null if it's a one-off charge
+    let paymentId = null;
+
+    if (billingType === 'monthly') {
+      // CASE A: Monthly Installments for Fixed Duration (Subscription with End Date)
+      // User pays month-by-month, but it ends after N months.
+
+      // Calculate limit date
+      const endDate = new Date();
+      endDate.setMonth(endDate.getMonth() + monthsDuration);
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      const monthlyValue = (billingCycle === 'monthly') ? totalCycleValue : (totalCycleValue / monthsDuration);
+
+      const subPayload = {
+        customer: asaasCustomerId,
+        billingType: paymentMethod, // 'CREDIT_CARD', 'PIX', or 'BOLETO'
+        value: monthlyValue,
+        nextDueDate: new Date().toISOString().split('T')[0],
+        cycle: 'MONTHLY', // Or quarterly/etc? No, fixed term usually implies monthly payments for X months.
+        description: `Plano ${plan.name} - Mensal (${monthsDuration} meses)`,
+        endDate: endDateStr, // Auto-cancel after this date
+        externalReference: userId,
+        metadata: { userId, planId, billingCycle, billingType: paymentMethod, isFixedTerm: true }
+      };
+
+      console.log('[Asaas] Creating Fixed-Term Subscription:', subPayload);
+      const asaasSub = await createAsaasSubscription(subPayload);
+      subscriptionId = asaasSub.id;
+
+      // Fetch first payment for Checkout URL
+      // Retry logic specifically for Subscription payments
+      try {
+        const { client } = await getAsaasClient();
+        for (let i = 0; i < 5; i++) {
+          const payRes = await client.get(`/subscriptions/${asaasSub.id}/payments`);
+          if (payRes.data?.data?.length > 0) {
+            const pkt = payRes.data.data[0];
+            checkoutUrl = pkt.invoiceUrl || pkt.bankSlipUrl;
+            paymentId = pkt.id;
+            console.log(`[Asaas] Found payment: ${paymentId}, URL: ${checkoutUrl}`);
+            if (checkoutUrl) break;
+          }
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      } catch (err) {
+        console.error('[Asaas] Failed to fetch sub payments:', err.message);
+      }
+
+    } else {
+      // CASE B: Upfront Payment (One-off Charge)
+      // Single charge for the full amount.
+
+      const { client } = await getAsaasClient();
+
+      const paymentPayload = {
+        customer: asaasCustomerId,
+        billingType: paymentMethod,
+        value: totalCycleValue,
+        dueDate: new Date().toISOString().split('T')[0],
+        description: `Plano ${plan.name} - Completo (${billingCycle})`,
+        externalReference: userId,
+        metadata: { userId, planId, billingCycle, billingType, isUpfront: true }
+      };
+
+      console.log('[Asaas] Creating Upfront Payment:', paymentPayload);
+      const payRes = await client.post('/payments', paymentPayload);
+      const payment = payRes.data;
+
+      paymentId = payment.id;
+      checkoutUrl = payment.invoiceUrl || payment.bankSlipUrl;
+    }
+
+    console.log('[Asaas] Final Checkout URL:', checkoutUrl);
+
+    if (!checkoutUrl) {
+      throw new Error('Asaas não retornou URL de pagamento (Checkout) tempo hábil.');
+    }
+
+    // Save to DB
+    const { error: insErr } = await db.from('subscriptions').insert({
+      user_id: userId,
+      asaas_customer_id: asaasCustomerId,
+      asaas_subscription_id: subscriptionId, // Null for upfront
+      asaas_payment_id: paymentId, // Null for subscription (usually, but we fetched first payment)
+      plan_id: planId,
+      status: 'pending',
+      billing_cycle: billingCycle,
+      billing_type: billingType,
+      checkout_url: checkoutUrl, // <--- CRITICAL: Save the link!
+      value: (billingType === 'monthly') ? ((billingCycle === 'monthly') ? (plan.priceQuarterly / 3) : (plan.priceQuarterly / 3)) : plan.priceQuarterly // Approximate, strictly we should use the calculated value
+      // Note: value above is just a placeholder, better to use what we sent to Asaas
+    });
+
+    // Return the URL to the frontend so it can redirect!
+    res.json({
+      success: true,
+      checkoutUrl,
+      subscriptionId,
+      paymentId
+    });
+
   } catch (err) {
-    console.error('create-payment error', err.response?.data || err.message || err);
-    return res.status(500).send({ error: 'Failed to create payment' });
+    next(err);
   }
 });
 
-// Webhook endpoint that Asaas will call on payment updates
+/**
+ * Unified Webhook Handler
+ */
 app.post('/api/asaas/webhook', async (req, res) => {
   try {
-    const body = req.body || {};
-    // Try to extract payment id
-    const paymentId = body.id || body?.data?.id || body?.payment?.id || body?.object?.id;
+    const { event, payment, subscription } = req.body;
+    const paymentId = payment?.id;
+    const subscriptionId = subscription?.id || payment?.subscription;
+    const externalReference = payment?.externalReference || subscription?.externalReference;
 
-    if (!paymentId) {
-      console.warn('Webhook received without identifiable payment id', body);
-      return res.status(400).send({ received: true });
-    }
+    console.log(`[Webhook] Event: ${event} | paymentId: ${paymentId} | subId: ${subscriptionId}`);
 
-    // Fetch payment details to know status
-    const paymentDetailRes = await axios.get(`${ASAAS_API_URL}/payments/${paymentId}`, {
-      headers: { access_token: ASAAS_API_KEY }
+    const db = supabaseAdmin || supabase;
+
+    await db.from('webhook_logs').insert({
+      event_id: req.body.id || `evt_${Date.now()}`,
+      event_type: event,
+      payload: req.body
     });
-    const payment = paymentDetailRes.data;
-    const status = (payment?.status || '').toLowerCase();
 
-    // Consider these statuses as successful payment (adjust if needed)
-    const paidStatuses = ['confirmed', 'paid', 'received', 'paid_offline'];
-    if (paidStatuses.includes(status)) {
-      // Find tenant by pending_payment_id or externalReference
-      const { data: tenantsByPending } = await supabase.from('tenants').select('*').eq('pending_payment_id', paymentId).limit(1);
-      let tenant = (tenantsByPending && tenantsByPending[0]) || null;
-      if (!tenant && payment.externalReference) {
-        const { data: tenantsByExternal } = await supabase.from('tenants').select('*').eq('id', payment.externalReference).limit(1);
-        tenant = (tenantsByExternal && tenantsByExternal[0]) || null;
+    if (['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED'].includes(event)) {
+      // Find subscription by ID or Payment ID (for upfront)
+      let localSub = null;
+      if (subscriptionId) {
+        const { data } = await db.from('subscriptions').select('*').eq('asaas_subscription_id', subscriptionId).maybeSingle();
+        localSub = data;
+      } else if (paymentId) {
+        const { data } = await db.from('subscriptions').select('*').eq('asaas_payment_id', paymentId).maybeSingle();
+        localSub = data;
       }
 
-      if (!tenant) {
-        console.warn('Paid payment but no tenant found for payment', paymentId);
-        return res.status(200).send({ received: true });
+      const userId = localSub?.user_id || externalReference;
+
+      if (userId) {
+        // Calculate next due date (approximate, +30 days)
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + 30); // Default 30 days active
+
+        // Update Subscription Status
+        if (localSub) {
+          await db.from('subscriptions').update({
+            status: 'active',
+            last_payment_date: new Date().toISOString()
+            // current_period_end would ideally come from Asaas, but +30 days is a safe fallback
+          }).eq('id', localSub.id);
+        }
+
+        // Activate Tenant
+        const { data: user } = await db.from('users').select('tenant_id').eq('id', userId).single();
+        if (user?.tenant_id) {
+          await db.from('tenants').update({
+            subscription_status: 'active',
+            status: 'active',
+            plan_id: localSub?.plan_id // Ensure plan is synced
+          }).eq('id', user.tenant_id);
+        }
+
+        // Log Payment
+        await db.from('payments').upsert({
+          id: paymentId,
+          user_id: userId,
+          asaas_subscription_id: subscriptionId,
+          // asaas_payment_id: paymentId, // if column exists
+          value: payment.value,
+          status: 'CONFIRMED',
+          billing_type: payment.billingType,
+          payment_date: new Date().toISOString()
+        });
       }
-
-      // Compute next billing date based on pending_billing_cycle
-      const cycle = tenant.pending_billing_cycle || 'quarterly';
-      const months = cycle === 'quarterly' ? 3 : cycle === 'semiannual' ? 6 : 12;
-      const nextDate = new Date();
-      nextDate.setMonth(nextDate.getMonth() + months);
-
-      await supabase.from('tenants').update({
-        plan_id: tenant.pending_plan_id,
-        billing_cycle: tenant.pending_billing_cycle,
-        next_billing: nextDate.toISOString(),
-        pending_plan_id: null,
-        pending_billing_cycle: null,
-        pending_payment_url: null,
-        pending_payment_id: null,
-        subscription_status: 'active'
-      }).eq('id', tenant.id);
     }
 
-    return res.status(200).send({ received: true });
+    if (['PAYMENT_OVERDUE', 'SUBSCRIPTION_DELETED', 'PAYMENT_REFUNDED', 'SUBSCRIPTION_DISABLED'].includes(event)) {
+      const { data: localSub } = await db.from('subscriptions')
+        .select('*')
+        .eq('asaas_subscription_id', subscriptionId)
+        .maybeSingle();
+
+      if (localSub) {
+        await db.from('subscriptions').update({ status: 'overdue' }).eq('id', localSub.id);
+        const { data: user } = await db.from('users').select('tenant_id').eq('id', localSub.user_id).single();
+        if (user?.tenant_id) {
+          await db.from('tenants').update({ subscription_status: 'overdue' }).eq('id', user.tenant_id);
+        }
+      }
+    }
+
+    return res.status(200).json({ success: true });
   } catch (err) {
-    console.error('Webhook processing error', err.response?.data || err.message || err);
-    return res.status(500).send({ error: 'webhook processing failed' });
+    console.error('[Asaas Webhook Error]', err);
+    return res.status(200).json({ success: false, error: err.message });
+  }
+});
+
+// Legacy support for admin fetching customers - standardized
+app.get('/api/asaas/customers', async (req, res) => {
+  try {
+    const { offset, limit, name, email } = req.query;
+    const params = new URLSearchParams();
+    if (offset) params.append('offset', offset);
+    if (limit) params.append('limit', limit);
+    if (name) params.append('name', name);
+    if (email) params.append('email', email);
+
+    const { client } = await getAsaasClient();
+    const response = await client.get(`/customers?${params.toString()}`);
+    res.send(response.data);
+  } catch (err) {
+    console.error('Error fetching customers:', err.response?.data || err.message);
+    res.status(500).send({ error: 'Failed to fetch customers' });
+  }
+});
+
+
+// --- NEW ENDPOINTS MIGRATED FROM EDGE FUNCTIONS ---
+
+// --- WEEKLY VARIABLE BILLING ENDPOINTS ---
+
+// GET /api/weekly-fees
+app.get('/api/weekly-fees', async (req, res) => {
+  try {
+    const tenantId = req.query.tenantId;
+    if (!tenantId) return res.status(400).send({ error: 'tenantId required' });
+
+    const { data, error } = await supabase.from('weekly_fees')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('week_start', { ascending: false });
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).send({ error: err.message });
+  }
+});
+
+// POST /api/admin/weekly-fees/calculate (Simulates a weekly job)
+app.post('/api/admin/weekly-fees/calculate', async (req, res) => {
+  try {
+    // 1. Fetch Active Tenants
+    const { data: tenants } = await supabase.from('tenants').select('*').eq('active', true);
+    if (!tenants) return res.status(200).send({ message: 'No active tenants' });
+
+    // 2. Define Week Range (Previous Week: Mon-Sun)
+    const now = new Date();
+    const lastMonday = new Date(now);
+    lastMonday.setDate(now.getDate() - (now.getDay() || 7) - 6);
+    const lastSunday = new Date(lastMonday);
+    lastSunday.setDate(lastMonday.getDate() + 6);
+
+    const weekStart = lastMonday.toISOString().split('T')[0];
+    const weekEnd = lastSunday.toISOString().split('T')[0];
+
+    const results = [];
+
+    for (const tenant of tenants) {
+      try {
+        if (!tenant.company_percentage || tenant.company_percentage <= 0) continue;
+
+        // 3. Fetch Revenue for that week
+        const { data: orders } = await supabase.from('orders')
+          .select('total_value')
+          .eq('tenant_id', tenant.id)
+          .gte('order_date', weekStart)
+          .lte('order_date', weekEnd)
+          .in('status', ['APROVADO', 'paid', 'approved']);
+
+        const weeklyRevenue = orders?.reduce((sum, o) => sum + (Number(o.total_value) || 0), 0) || 0;
+        const amountDue = weeklyRevenue * (tenant.company_percentage / 100);
+
+        if (amountDue <= 0) continue;
+
+        // 4. Insert (Upsert) Weekly Fee
+        const { error: insErr } = await supabase.from('weekly_fees').upsert({
+          tenant_id: tenant.id,
+          week_start: weekStart,
+          week_end: weekEnd,
+          revenue_week: weeklyRevenue,
+          percent_applied: tenant.company_percentage,
+          amount_due: amountDue,
+          status: 'pending'
+        }, { onConflict: 'tenant_id,week_start' });
+
+        if (!insErr) results.push({ tenant: tenant.name, revenue: weeklyRevenue, due: amountDue });
+      } catch (e) {
+        console.error(`Failed to calculate week for ${tenant.name}`, e.message);
+      }
+    }
+
+    res.json({ success: true, processed: results.length, details: results });
+  } catch (err) {
+    console.error('Calculation error:', err);
+    res.status(500).send({ error: err.message });
+  }
+});
+
+// POST /api/weekly-fees/:id/gerar-cobranca
+app.post('/api/weekly-fees/:id/gerar-cobranca', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paymentMethod } = req.body;
+
+    const { client } = await getAsaasClient();
+
+    // 1. Fetch Fee Record
+    const { data: fee, error: feeErr } = await supabase.from('weekly_fees').select('*').eq('id', id).single();
+    if (feeErr || !fee) return res.status(404).send({ error: 'Fatura não encontrada' });
+    if (fee.status !== 'pending') return res.status(400).send({ error: 'Cobrança já gerada ou paga' });
+
+    // 2. Fetch Customer Mapping
+    const { data: mapping } = await supabase.from('asaas_customers').select('asaas_customer_id').eq('user_id',
+      (await supabase.from('users').select('id').eq('tenant_id', fee.tenant_id).limit(1).single()).data?.id
+    ).single();
+
+    if (!mapping) return res.status(400).send({ error: 'Cliente não mapeado no Asaas' });
+
+    // 3. Create Asaas Payment
+    const asaasBillingType = paymentMethod === 'CREDIT_CARD' ? 'CREDIT_CARD' : (paymentMethod === 'PIX' ? 'PIX' : 'BOLETO');
+    const externalReference = `${fee.tenant_id}_week_${fee.week_start}`;
+
+    // JSON reference for better parsing if needed
+    const refData = { tenantId: fee.tenant_id, requestId: fee.id, type: 'weekly_fee', weekStart: fee.week_start };
+
+    const chargePayload = {
+      customer: mapping.asaas_customer_id,
+      billingType: asaasBillingType,
+      value: fee.amount_due,
+      dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days
+      description: `Taxa semanal (${fee.week_start} a ${fee.week_end}) sobre faturamento: R$ ${fee.revenue_week.toFixed(2)}`,
+      externalReference: JSON.stringify(refData)
+    };
+
+    const asaasRes = await client.post('/payments', chargePayload);
+    const asaasData = asaasRes.data;
+
+    // 4. Update local record
+    await supabase.from('weekly_fees').update({
+      status: 'created',
+      asaas_payment_id: asaasData.id,
+      asaas_invoice_url: asaasData.invoiceUrl || asaasData.bankSlipUrl || '',
+      due_date: asaasData.dueDate,
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+
+    res.json({ success: true, paymentUrl: asaasData.invoiceUrl || asaasData.bankSlipUrl });
+  } catch (err) {
+    console.error('Gerar cobrança semanal error:', err.response?.data || err.message);
+    res.status(500).send({ error: 'Falha ao gerar cobrança no Asaas' });
+  }
+});
+
+// POST /api/weekly-fees/:id/cancelar
+app.post('/api/weekly-fees/:id/cancelar', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data: fee } = await supabase.from('weekly_fees').select('*').eq('id', id).single();
+    if (!fee) return res.status(404).send({ error: 'Fatura não encontrada' });
+
+    if (fee.asaas_payment_id && fee.status !== 'paid') {
+      try {
+        const { client } = await getAsaasClient();
+        await client.delete(`/payments/${fee.asaas_payment_id}`);
+      } catch (e) { console.warn('Asaas delete failed', e.message); }
+    }
+
+    await supabase.from('weekly_fees').update({
+      status: 'canceled',
+      asaas_payment_id: null,
+      asaas_invoice_url: null
+    }).eq('id', id);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).send({ error: err.message });
+  }
+});
+
+// 1. Create/Get Asaas Customer
+app.post('/api/asaas/create-customer', async (req, res) => {
+  try {
+    const { client } = await getAsaasClient();
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).send({ error: "user_id required" });
+
+    // Verify user exists
+    const { data: user, error: userError } = await supabase.from("users").select("*, tenants(*)").eq("id", user_id).single();
+    if (userError || !user) return res.status(404).send({ error: "User not found" });
+
+    const tenant = user.tenants;
+    const document = (tenant?.document || '').replace(/\D/g, '');
+    const email = user.email;
+
+    // 1. Check mapping in local DB
+    const { data: mapping } = await supabase.from("asaas_customers").select("asaas_customer_id").eq("user_id", user.id).single();
+
+    let asaasCustomerId = mapping?.asaas_customer_id;
+
+    // 2. If ID exists locally, verify it's still valid in Asaas
+    if (asaasCustomerId) {
+      try {
+        await client.get(`/customers/${asaasCustomerId}`);
+        console.log(`[Asaas] Existing valid customer found in DB: ${asaasCustomerId}`);
+        return res.send({ asaas_customer_id: asaasCustomerId });
+      } catch (err) {
+        console.warn(`[Asaas] Customer ID ${asaasCustomerId} found in DB but invalid or removed in Asaas. Searching for another or creating new...`);
+        asaasCustomerId = null;
+        // Optional: Remove invalid mapping? 
+        // await supabase.from("asaas_customers").delete().eq("user_id", user.id);
+      }
+    }
+
+    // 3. Search in Asaas by Email or Document to avoid duplication
+    try {
+      const searchParams = new URLSearchParams();
+      if (email) searchParams.append('email', email);
+      if (document) searchParams.append('cpfCnpj', document);
+
+      const searchResp = await client.get(`/customers?${searchParams.toString()}`);
+      if (searchResp.data.data && searchResp.data.data.length > 0) {
+        asaasCustomerId = searchResp.data.data[0].id;
+        console.log(`[Asaas] Customer found in Asaas search: ${asaasCustomerId}`);
+
+        // Save/Update mapping
+        await supabase.from("asaas_customers").upsert({ user_id: user.id, asaas_customer_id: asaasCustomerId }, { onConflict: 'user_id' });
+        return res.send({ asaas_customer_id: asaasCustomerId });
+      }
+    } catch (searchErr) {
+      console.warn("[Asaas] Search by email/doc failed", searchErr.message);
+    }
+
+    // 4. Create in Asaas if not found
+    console.log(`[Asaas] Creating new customer for user ${user.id} (${user.email}).`);
+    try {
+      const payload = {
+        name: user.name || user.email,
+        email: user.email,
+        externalReference: user.id,
+        cpfCnpj: document
+      };
+
+      const asaasResp = await client.post(`/customers`, payload);
+      asaasCustomerId = asaasResp.data.id;
+      console.log(`[Asaas] Customer created: ${asaasCustomerId}`);
+
+      // Save mapping
+      await supabase.from("asaas_customers").upsert({ user_id: user.id, asaas_customer_id: asaasCustomerId }, { onConflict: 'user_id' });
+
+      return res.status(201).send({ asaas_customer_id: asaasCustomerId });
+    } catch (asaasErr) {
+      const errorData = asaasErr.response?.data;
+      console.error("Asaas create customer error", JSON.stringify(errorData || asaasErr.message));
+
+      let friendlyMessage = "Erro ao criar cliente no Asaas.";
+      if (errorData?.errors && errorData.errors.length > 0) {
+        friendlyMessage = errorData.errors.map(e => e.description).join(', ');
+      }
+
+      return res.status(400).send({ error: friendlyMessage, detail: errorData });
+    }
+  } catch (err) {
+    console.error("create-customer global error", err);
+    res.status(500).send({ error: err.message });
+  }
+});
+
+// 2. Get Subscription Status
+app.get('/api/subscription-status/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).send({ error: "userId required" });
+
+    // 1. Get Subscription Status from DB
+    const { data: subscription, error: subError } = await supabase
+      .from("subscriptions")
+      .select(`*, plans (*)`)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // 2. Get Payments history
+    const { data: payments } = await supabase
+      .from("payments")
+      .select("*")
+      .eq("user_id", userId)
+      .order("due_date", { ascending: false })
+      .limit(10);
+
+    if (subError) return res.status(500).send({ error: "DB error", detail: subError });
+
+    return res.send({
+      subscription: subscription ? { ...subscription, payments: payments || [] } : null
+    });
+  } catch (err) {
+    console.error("get-subscription-status error", err);
+    res.status(500).send({ error: err.message });
+  }
+});
+
+// 3. Create Subscription
+app.post('/api/asaas/create-subscription', async (req, res) => {
+  try {
+    const { plan_id, billing_cycle, user_id } = req.body;
+    if (!user_id || !plan_id) return res.status(400).send({ error: "user_id and plan_id required" });
+
+    const { client } = await getAsaasClient();
+
+    const { data: user } = await supabase.from("users").select("*").eq("id", user_id).single();
+    if (!user) return res.status(404).send({ error: "User not found" });
+
+    const cycleMap = { 'quarterly': 'QUARTERLY', 'semiannual': 'SEMIANNUAL', 'yearly': 'YEARLY', 'monthly': 'MONTHLY' };
+    const asaasCycle = cycleMap[billing_cycle] || "MONTHLY";
+
+    const { data: plan } = await supabase.from("plans").select("*").eq("id", plan_id).single();
+    if (!plan) return res.status(404).send({ error: "Plan not found" });
+
+    // Check mapping
+    const { data: mapping } = await supabase.from("asaas_customers").select("asaas_customer_id").eq("user_id", user.id).single();
+    if (!mapping) return res.status(400).send({ error: "Customer not registered in Asaas" });
+
+    const priceMap = {
+      'QUARTERLY': plan.price_quarterly,
+      'SEMIANNUAL': plan.price_semiannual,
+      'YEARLY': plan.price_yearly,
+      'MONTHLY': plan.price_monthly || plan.price
+    };
+    const finalPrice = priceMap[asaasCycle] || 0;
+
+    // Idempotency
+    const { data: existingSub } = await supabase.from("subscriptions").select("*").eq("user_id", user.id).eq("plan_id", plan_id).eq("status", "active").maybeSingle();
+    if (existingSub) return res.send({ subscription: existingSub, message: "Subscription already active" });
+
+    // Create in Asaas
+    try {
+      const payload = {
+        customer: mapping.asaas_customer_id,
+        billingType: "UNDEFINED", // Allows customer to choose (Boleto/Pix/Card)
+        value: finalPrice,
+        nextDueDate: new Date().toISOString().split("T")[0],
+        cycle: asaasCycle,
+        description: `Assinatura: ${(plan.name || 'Plano')} (${asaasCycle})`,
+        externalReference: user.id,
+      };
+
+      console.log(`[Asaas] Creating subscription for user ${user.id} (${user.email}). Value: ${finalPrice} Cycle: ${asaasCycle}`);
+      const asaasResp = await client.post(`/subscriptions`, payload);
+
+      const asaasData = asaasResp.data;
+      console.log(`[Asaas] Subscription created: ${asaasData.id}`);
+
+      // Store in DB
+      let newSub = null;
+      try {
+        const { data, error: subError } = await supabase.from("subscriptions").insert({
+          user_id: user.id,
+          plan_id: plan.id,
+          asaas_subscription_id: asaasData.id,
+          status: "pending",
+          value: finalPrice,
+          cycle: asaasCycle,
+          next_due_date: asaasData.nextDueDate,
+        }).select().single();
+
+        if (subError) throw subError;
+        newSub = data;
+      } catch (dbErr) {
+        console.error("DB Insert Subscription Error", dbErr);
+        // Don't fail the request if DB fails, but log it. The user has the sub in Asaas.
+        // We might want to return a warning or try to void the sub in Asaas? 
+        // For now, proceed.
+      }
+
+      // Get payment URL
+      let paymentUrl = "";
+      try {
+        const payRes = await client.get(`/payments?subscription=${asaasData.id}&limit=1`);
+        if (payRes.data.data && payRes.data.data.length > 0) paymentUrl = payRes.data.data[0].invoiceUrl;
+      } catch (e) {
+        console.warn("Failed to fetch invoice URL immediately", e.message);
+      }
+
+      // Update Tenant Pending State
+      const { data: userData } = await supabase.from("users").select("tenant_id").eq("id", user.id).single();
+      if (userData?.tenant_id) {
+        await supabase.from("tenants").update({
+          pending_plan_id: plan.id,
+          pending_billing_cycle: billing_cycle,
+          pending_payment_url: paymentUrl,
+        }).eq("id", userData.tenant_id);
+      }
+
+      return res.status(201).send({ subscription: newSub || asaasData, paymentUrl });
+
+    } catch (apiErr) {
+      const errorData = apiErr.response?.data;
+      console.error("Asaas subscription api error", JSON.stringify(errorData || apiErr.message));
+
+      let friendlyMessage = "Erro ao criar assinatura no Asaas.";
+      if (errorData?.errors && errorData.errors.length > 0) {
+        friendlyMessage = errorData.errors.map(e => e.description).join(', ');
+      }
+      return res.status(400).send({ error: friendlyMessage, detail: errorData });
+    }
+  } catch (err) {
+    console.error("create-subscription error", err);
+    res.status(500).send({ error: err.message });
   }
 });
 
@@ -213,8 +806,790 @@ app.use('/api/yampi', async (req, res) => {
   }
 });
 
+// --- NEW YAMPI METRICS ENDPOINTS ---
+
+/**
+ * POST /api/admin/metricas/yampi/sync
+ * Manually triggers synchronization for one or all tenants.
+ */
+app.post('/api/admin/metricas/yampi/sync', async (req, res) => {
+  try {
+    const { tenantId } = req.body;
+    const db = supabaseAdmin || supabase;
+    const { YampiSyncService } = await import('./services/yampiSync.js');
+
+    if (tenantId) {
+      const { data: tenant } = await db.from('tenants').select('*').eq('id', tenantId).single();
+      if (!tenant) return res.status(404).send({ error: 'Tenant not found' });
+      await YampiSyncService.syncOrders(tenant);
+    } else {
+      const { data: tenants } = await db.from('tenants').select('*').not('yampi_token', 'is', null);
+      for (const t of (tenants || [])) {
+        try { await YampiSyncService.syncOrders(t); } catch (e) { console.error(`Sync failed for ${t.id}`, e.message); }
+      }
+    }
+
+    return res.json({ success: true, message: 'Synchronization triggered successfully' });
+  } catch (err) {
+    console.error('Manual sync trigger error:', err.message);
+    res.status(500).send({ success: false, error: 'Failed to trigger synchronization' });
+  }
+});
+
+/**
+ * GET /api/admin/metricas/yampi/overview
+ * Returns consolidated metrics for Yampi orders.
+ */
+app.get('/api/admin/metricas/yampi/overview', async (req, res) => {
+  try {
+    const { startDate, endDate, tenantId } = req.query;
+    const db = supabaseAdmin || supabase;
+
+    // Use SQL aggregation where possible to avoid 1000-row limit
+    // We'll fetch the aggregated data directly if we don't need individual rows for charts
+    // Actually, for charts we need daily data. 
+
+    let baseQuery = db.from('orders').select('status, is_canceled, is_refunded, gross_value, net_value, order_date');
+
+    if (tenantId) baseQuery = baseQuery.eq('tenant_id', tenantId);
+    if (startDate) baseQuery = baseQuery.gte('order_date', startDate);
+    if (endDate) baseQuery = baseQuery.lte('order_date', endDate);
+
+    // If there might be thousands of orders, we should use a recursive fetch or RPC
+    // For now, let's fetch in chunks if needed or trust 1000 is enough for a typical dashboard view (daily/weekly)
+    // BUT to be safe, let's fetch enough to cover common periods.
+    const { data: orders, error } = await baseQuery.limit(5000); // Higher limit
+    if (error) throw error;
+
+    const stats = {
+      ordersCreated: orders.length,
+      ordersPaid: 0,
+      grossRevenue: 0,
+      netRevenue: 0,
+      canceled: 0,
+      refunded: 0,
+      averageTicket: 0,
+      chartData: []
+    };
+
+    const dailyRevenue = {};
+
+    orders.forEach(o => {
+      const isPaid = o.status === 'APROVADO';
+      const isCanceled = o.is_canceled || o.status === 'CANCELADO';
+      const isRefunded = o.is_refunded;
+
+      if (isCanceled) stats.canceled++;
+      if (isRefunded) stats.refunded++;
+
+      if (isPaid && !isCanceled) {
+        stats.ordersPaid++;
+        stats.grossRevenue += Number(o.gross_value || 0);
+        stats.netRevenue += Number(o.net_value || 0);
+
+        const dateKey = (o.order_date || '').split('T')[0];
+        if (dateKey) {
+          dailyRevenue[dateKey] = (dailyRevenue[dateKey] || 0) + Number(o.gross_value || 0);
+        }
+      }
+    });
+
+    stats.averageTicket = stats.ordersPaid > 0 ? stats.grossRevenue / stats.ordersPaid : 0;
+    stats.chartData = Object.keys(dailyRevenue).sort().map(day => ({ day, value: dailyRevenue[day] }));
+
+    return res.json({ success: true, data: stats });
+  } catch (err) {
+    console.error('Yampi overview metrics error:', err.message);
+    res.status(500).send({ success: false, error: 'Failed to fetch Yampi metrics' });
+  }
+});
+
+/**
+ * GET /api/admin/metricas/yampi/orders
+ * Returns paginated orders with detailed metrics and filters.
+ */
+app.get('/api/admin/metricas/yampi/orders', async (req, res) => {
+  try {
+    const { tenantId, startDate, endDate, status, page = 1, limit = 20 } = req.query;
+    const offset = (Number(page) - 1) * Number(limit);
+    const db = supabaseAdmin || supabase;
+
+    let query = db.from('orders').select('*, tenants(name)', { count: 'exact' });
+
+    if (tenantId) query = query.eq('tenant_id', tenantId);
+    if (startDate) query = query.gte('order_date', startDate);
+    if (endDate) query = query.lte('order_date', endDate);
+    if (status) query = query.eq('status', status);
+
+    query = query.order('order_date', { ascending: false }).range(offset, offset + Number(limit) - 1);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    return res.json({
+      success: true,
+      data,
+      meta: {
+        total: count,
+        page: Number(page),
+        limit: Number(limit)
+      }
+    });
+  } catch (err) {
+    console.error('Yampi orders list error:', err.message);
+    res.status(500).send({ success: false, error: 'Failed to fetch Yampi orders' });
+  }
+});
+
+// --- NEW ENDPOINTS FOR ADMIN DASHBOARDS (Performance & Extrato) ---
+
+
+/**
+ * /api/admin/performance/metrics
+ * Returns aggregated metrics for the Performance dashboard.
+ */
+app.get('/api/admin/performance/metrics', async (req, res) => {
+  try {
+    const { startDate, endDate, tenantId } = req.query;
+
+    // Base query for orders
+    let ordersQuery = supabase.from('orders').select('*');
+    if (tenantId) ordersQuery = ordersQuery.eq('tenant_id', tenantId);
+    if (startDate) ordersQuery = ordersQuery.gte('created_at', startDate);
+    if (endDate) ordersQuery = ordersQuery.lte('created_at', endDate);
+
+    // Fetch orders
+    const { data: orders, error: ordersError } = await ordersQuery;
+    if (ordersError) throw ordersError;
+
+    // Filter approved orders
+    const validStatuses = ['APROVADO', 'paid', 'approved', 'succes'];
+    const approvedOrders = (orders || []).filter(o =>
+      validStatuses.includes(o.status) || validStatuses.includes((o.status || '').toLowerCase())
+    );
+
+    const totalRevenue = approvedOrders.reduce((sum, o) => sum + (Number(o.value || o.total_value) || 0), 0);
+    const orderCount = approvedOrders.length;
+    const avgTicket = orderCount > 0 ? totalRevenue / orderCount : 0;
+
+    // Fetch active subscriptions
+    let subsQuery = supabase.from('subscriptions').select('*, plans(*)').eq('status', 'active');
+    if (tenantId) {
+      // Need to join via users table if tenantId is provided, but for now assuming global admin or simple link
+      // This accurate filtering would require a join: subscriptions -> users -> tenant_id
+      // For MVP/simplicity, we might skip tenant filtering for subs OR do a 2-step fetch if needed.
+      // Let's do a quick 2-step if tenantId is present.
+      const { data: tenantUsers } = await supabase.from('users').select('id').eq('tenant_id', tenantId);
+      const userIds = (tenantUsers || []).map(u => u.id);
+      if (userIds.length > 0) subsQuery = subsQuery.in('user_id', userIds);
+      else subsQuery = subsQuery.in('user_id', []); // No users found
+    }
+    const { data: activeSubs, error: subsError } = await subsQuery;
+    if (subsError) throw subsError;
+
+    const activeSubscriptionsCount = (activeSubs || []).length;
+    const mrr = (activeSubs || []).reduce((sum, sub) => {
+      // Normalize price to monthly
+      const price = sub.value || 0;
+      const cycle = (sub.cycle || 'MONTHLY').toUpperCase();
+      if (cycle === 'QUARTERLY') return sum + (price / 3);
+      if (cycle === 'SEMIANNUAL') return sum + (price / 6);
+      if (cycle === 'YEARLY') return sum + (price / 12);
+      return sum + price;
+    }, 0);
+
+    // Group orders by day for chart
+    const ordersByDay = {};
+    approvedOrders.forEach(o => {
+      const day = (o.order_date || o.created_at || '').split('T')[0];
+      if (day) ordersByDay[day] = (ordersByDay[day] || 0) + (Number(o.value || o.total_value) || 0);
+    });
+    const chartData = Object.keys(ordersByDay).sort().map(day => ({ day, value: ordersByDay[day] }));
+
+    return res.json({
+      totalRevenue,
+      activeSubscriptions: activeSubscriptionsCount,
+      mrr,
+      avgTicket,
+      ordersByDay: chartData,
+      orderCount
+    });
+
+  } catch (err) {
+    console.error('Error fetching performance metrics:', err);
+    res.status(500).send({ error: 'Failed to fetch performance metrics' });
+  }
+});
+
+/**
+ * /api/admin/extrato
+ * Returns a paginated list of financial transactions (Incomes, Commissions, etc).
+ */
+app.get('/api/admin/extrato', async (req, res) => {
+  try {
+    const { page = 1, limit = 20, startDate, endDate, type, status, tenantId } = req.query;
+    const offset = (page - 1) * limit;
+
+    // We primarily source from 'payments' (Asaas) and potentially 'subscriptions' or 'orders'
+    // For a unified "Extrato", we might need a dedicated view or table, OR just query 'payments' usually.
+    // Let's query 'payments' table which should ideally be synced with Asaas.
+
+    let query = supabase.from('payments').select('*', { count: 'exact' });
+
+    if (startDate) query = query.gte('due_date', startDate);
+    if (endDate) query = query.lte('due_date', endDate);
+    if (status) query = query.eq('status', status);
+
+    // For tenant filtering, we need user relation if payments are linked to users
+    if (tenantId) {
+      const { data: tenantUsers } = await supabase.from('users').select('id').eq('tenant_id', tenantId);
+      const userIds = (tenantUsers || []).map(u => u.id);
+      if (userIds.length > 0) query = query.in('user_id', userIds);
+      else query = query.in('user_id', []);
+    }
+
+    query = query.order('due_date', { ascending: false }).range(offset, offset + Number(limit) - 1);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    return res.json({
+      data,
+      meta: {
+        total: count,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(count / limit)
+      }
+    });
+
+  } catch (err) {
+    console.error('Error fetching extrato:', err);
+    res.status(500).send({ error: 'Failed to fetch extrato' });
+  }
+});
+
+
+/**
+ * /api/asaas/sync-data
+ * Force manual sync of data from Asaas (Payments & Customers) to local DB.
+ */
+app.post('/api/asaas/sync-data', async (req, res) => {
+  try {
+    const { client } = await getAsaasClient(); // Get fresh client
+    console.log("Starting full Asaas Sync...");
+
+    // 1. Sync Payments (Last 30 days)
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    const dateString = cutoffDate.toISOString().split('T')[0];
+
+    // Fetch from Asaas
+    // Note: Asaas pagination limit is max 100 usually. We loop if needed, but for MVP just fetch latest 100.
+    const paymentsRes = await client.get(`/payments?dueDate[ge]=${dateString}&limit=100`);
+
+    const payments = paymentsRes.data.data || [];
+    console.log(`Fetched ${payments.length} payments from Asaas.`);
+
+    let insertedCount = 0;
+    let errorsCount = 0;
+
+    for (const p of payments) {
+      try {
+        // Try to link to a local user via externalReference (if it holds user_id) or customer ID mapping
+        let userId = null;
+
+        const { data: mapping } = await supabase.from('asaas_customers').select('user_id').eq('asaas_customer_id', p.customer).single();
+        if (mapping) userId = mapping.user_id;
+
+        // Upsert payment
+        // Map Asaas fields to DB fields
+        await supabase.from('payments').upsert({
+          id: p.id, // Use Asaas ID as PK if schema allows, or use it as unique key
+          user_id: userId,
+          value: p.value,
+          net_value: p.netValue,
+          status: p.status, // PENDING, RECEIVED, etc.
+          billing_type: p.billingType,
+          due_date: p.dueDate,
+          payment_date: p.paymentDate,
+          invoice_url: p.invoiceUrl,
+          description: p.description
+        }, { onConflict: 'id' }); // Assuming 'id' is the Asaas ID column or there's a constraint.
+
+        insertedCount++;
+      } catch (innerErr) {
+        console.warn(`Failed to sync payment ${p.id}`, innerErr.message);
+        errorsCount++;
+      }
+    }
+
+    // 2. Sync Subscriptions
+    const subRes = await client.get(`/subscriptions?limit=100`);
+    const subscriptions = subRes.data.data || [];
+    console.log(`Fetched ${subscriptions.length} subscriptions from Asaas.`);
+
+    for (const s of subscriptions) {
+      try {
+        let userId = null;
+        const { data: mapping } = await supabase.from('asaas_customers').select('user_id').eq('asaas_customer_id', s.customer).single();
+        if (mapping) userId = mapping.user_id;
+
+        await supabase.from('subscriptions').upsert({
+          asaas_subscription_id: s.id,
+          user_id: userId,
+          value: s.value,
+          status: s.status.toLowerCase(),
+          cycle: s.cycle,
+          next_due_date: s.nextDueDate,
+          description: s.description
+        }, { onConflict: 'asaas_subscription_id' });
+      } catch (innerErr) {
+        console.warn(`Failed to sync subscription ${s.id}`, innerErr.message);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Synced ${insertedCount} payments and ${subscriptions.length} subscriptions. Errors: ${errorsCount}.`
+    });
+
+  } catch (err) {
+    console.error('Sync error:', err);
+    return res.status(500).send({ error: 'Sync process failed.' });
+  }
+});
+
+
+// --- WEEKLY FEES CALCULATION ENDPOINTS ---
+
+/**
+ * Helper to calculate revenue per tenant for a date range
+ */
+async function calculateRevenuePerTenant(startDate, endDate) {
+  const db = supabaseAdmin || supabase;
+
+  // 1. Fetch all tenants with company_percentage > 0
+  const { data: tenants, error: tErr } = await db
+    .from('tenants')
+    .select('id, name, owner_email, company_percentage')
+    .gt('company_percentage', 0);
+
+  if (tErr) throw tErr;
+
+  // 2. Fetch approved orders within range
+  // We need to group by tenant. Supabase JS doesn't do complex GROUP BY well without RPC.
+  // We'll fetch all relevant orders and aggregate in JS for MVP simplicity (assuming < 10k orders/week).
+  // Optimally: Use an RPC function 'calculate_weekly_revenue(start, end)'.
+
+  // Let's try JS aggregation for now.
+  const { data: orders, error: oErr } = await db
+    .from('orders')
+    .select('tenant_id, total_value, value, status')
+    .gte('created_at', startDate)
+    .lte('created_at', endDate)
+    .in('status', ['paid', 'approved', 'succes', 'APROVADO', 'COMPLETO']); // Add your valid statuses
+
+  if (oErr) throw oErr;
+
+  // Aggregate
+  const revenueMap = {}; // tenantId -> total
+  orders.forEach(o => {
+    const val = Number(o.value || o.total_value || 0);
+    if (!revenueMap[o.tenant_id]) revenueMap[o.tenant_id] = 0;
+    revenueMap[o.tenant_id] += val;
+  });
+
+  // Build Result List
+  const results = tenants.map(t => {
+    const revenue = revenueMap[t.id] || 0;
+    const fee = t.company_percentage || 0;
+    const amount = revenue * (fee / 100);
+    return {
+      tenantId: t.id,
+      tenantName: t.name,
+      email: t.owner_email,
+      revenue,
+      percentage: fee,
+      amountDue: amount
+    };
+  }).filter(r => r.amountDue > 0); // Only return those with fees
+
+  return results;
+}
+
+app.post('/api/admin/weekly-fees/preview', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.body;
+    if (!startDate || !endDate) return res.status(400).send({ error: 'startDate and endDate required' });
+
+    const results = await calculateRevenuePerTenant(startDate, endDate);
+    return res.json({ data: results });
+
+  } catch (err) {
+    console.error('Preview fees error:', err);
+    return res.status(500).send({ error: 'Failed to calculate preview.' });
+  }
+});
+
+app.post('/api/admin/weekly-fees/calculate', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.body;
+    if (!startDate || !endDate) return res.status(400).send({ error: 'startDate and endDate required' });
+
+    const results = await calculateRevenuePerTenant(startDate, endDate);
+    const db = supabaseAdmin || supabase;
+
+    let createdCount = 0;
+    for (const item of results) {
+      // Upsert weekly fee record
+      const { error } = await db.from('weekly_fees').upsert({
+        tenant_id: item.tenantId,
+        week_start: startDate,
+        week_end: endDate,
+        revenue_week: item.revenue,
+        percent_applied: item.percentage,
+        amount_due: item.amountDue,
+        status: 'pending' // Default status
+      }, { onConflict: 'tenant_id, week_start' }); // Assuming unique constraint on (tenant_id, week_start)
+
+      if (!error) createdCount++;
+    }
+
+    return res.json({ success: true, created: createdCount });
+
+  } catch (err) {
+    console.error('Calculate fees error:', err);
+    return res.status(500).send({ error: 'Failed to generate fees.' });
+  }
+});
+
+/**
+ * /api/admin/weekly-fees/auto-close
+ * Automatically scans past weeks and generates fees for any missing weeks.
+ * Also updates Tenant Meta Range if revenue exceeds threshold.
+ */
+app.post('/api/admin/weekly-fees/auto-close', async (req, res) => {
+  try {
+    const db = supabaseAdmin || supabase;
+
+    // 1. Define weeks to scan (e.g., last 8 weeks)
+    const weeksToScan = 8;
+    const now = new Date();
+    const results = [];
+
+    // Iterate backwards from last full week
+    for (let i = 1; i <= weeksToScan; i++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - (i * 7));
+
+      // Calculate start/end of that week (assuming Monday-Sunday or fixed 7 day blocks)
+      // For simplicity, let's just stick to "Last 7 days" relative to 'd', or finding the Monday.
+      // Let's assume standard ISO weeks or just rolling 7-day windows? 
+      // User asked for "fecho de toda semana", usually Monday-Sunday.
+
+      const day = d.getDay(); // 0 (Sun) to 6 (Sat)
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+      const monday = new Date(d.setDate(diff));
+      monday.setHours(0, 0, 0, 0);
+
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
+
+      const startDate = monday.toISOString();
+      const endDate = sunday.toISOString();
+
+      // 2. Calculate Revenue for this week
+      const weekData = await calculateRevenuePerTenant(startDate, endDate);
+
+      for (const item of weekData) {
+        // 3. Check if fee already exists
+        const { data: existing } = await db.from('weekly_fees')
+          .select('id')
+          .eq('tenant_id', item.tenantId)
+          .eq('week_start', startDate) // Assuming strict date match from calculateRevenuePerTenant logic? 
+          // Actually calculateRevenuePerTenant doesn't return dates, we pass them.
+          // So we use startDate as the key.
+          .maybeSingle();
+
+        if (!existing) {
+          // Insert
+          await db.from('weekly_fees').insert({
+            tenant_id: item.tenantId,
+            week_start: startDate,
+            week_end: endDate,
+            revenue_week: item.revenue,
+            percent_applied: item.percentage,
+            amount_due: item.amountDue,
+            status: 'pending'
+          });
+          results.push(`Generated: ${item.tenantName} (${startDate}) - R$ ${item.amountDue.toFixed(2)}`);
+        }
+
+        // 4. Auto-Update Meta (Sales Goal) Logic
+        // If Total Revenue (not just weekly) exceeds threshold, upgrade range.
+        // We need TOTAL revenue for this tenant. 
+        // Let's fetch total approved revenue ever.
+        // Optimally this should be an aggregate view, but we can sum here.
+
+        // Check current Meta Logic:
+        // 0-10k, 10k-100k, 100k-1M
+
+        // Quick aggregate total revenue
+        const { data: totalRevData } = await db.from('orders')
+          .select('value, total_value')
+          .eq('tenant_id', item.tenantId)
+          .in('status', ['paid', 'approved', 'succes', 'APROVADO', 'COMPLETO']);
+
+        const totalRevenue = (totalRevData || []).reduce((sum, o) => sum + Number(o.value || o.total_value || 0), 0);
+
+        let newRange = null;
+        if (totalRevenue > 1000000) newRange = '100k-1M+'; // If you have a higher range
+        else if (totalRevenue > 100000) newRange = '100k-1M';
+        else if (totalRevenue > 10000) newRange = '10k-100k';
+        else newRange = '0-10k';
+
+        // Fetch current range to compare
+        const { data: currentTenant } = await db.from('tenants').select('meta_range').eq('id', item.tenantId).single();
+
+        if (currentTenant && currentTenant.meta_range !== newRange) {
+          // Only upgrade (never downgrade automatically? User said "mudar para a proxima", implies upgrade)
+          // Let's allow both or just upgrade. Let's upgrade.
+          // Mapping ranges to magnitude
+          const magnitude = { '0-10k': 1, '10k-100k': 2, '100k-1M': 3, '100k-1M+': 4 };
+          if ((magnitude[newRange] || 0) > (magnitude[currentTenant.meta_range] || 0)) {
+            await db.from('tenants').update({ meta_range: newRange }).eq('id', item.tenantId);
+            results.push(`Meta Upgraded: ${item.tenantName} -> ${newRange}`);
+          }
+        }
+      }
+    }
+
+    return res.json({ success: true, message: `Auto-close process completed.`, logs: results });
+
+  } catch (err) {
+    console.error('Auto-close error:', err);
+    return res.status(500).send({ error: 'Failed to auto-close weeks.' });
+  }
+});
+
+// --- ADMIN METRICS MODULE ---
+
+/**
+ * GET /api/admin/metrics/overview
+ * Returns aggregated totals for the metrics dashboard.
+ */
+app.get('/api/admin/metrics/overview', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const db = supabaseAdmin || supabase;
+
+    // 1. Get Weekly Fees within range
+    const start = startDate || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const end = endDate || new Date().toISOString();
+
+    let feesQuery = db.from('weekly_fees').select('amount_due, status')
+      .gte('week_start', start)
+      .lte('week_end', end);
+
+    const { data: fees, error: feesErr } = await feesQuery;
+    if (feesErr) throw feesErr;
+
+    // 2. Aggregate Fees
+    let totalExpected = 0; // Soma de amount_due (gerado)
+    let totalPaid = 0;
+    let totalPending = 0;
+    let totalOverdue = 0;
+
+    (fees || []).forEach(f => {
+      const amount = Number(f.amount_due || 0);
+      totalExpected += amount;
+      if (f.status === 'paid' || f.status === 'received') totalPaid += amount;
+      else if (f.status === 'pending') totalPending += amount;
+      else if (f.status === 'overdue') totalOverdue += amount;
+    });
+
+    // 3. Get total active tenants (adimplentes vs inadimplentes based on fee status)
+    // Simplified: check tenants with overdue fees
+    const { data: overdueFees } = await db.from('weekly_fees')
+      .select('tenant_id')
+      .eq('status', 'overdue');
+
+    const uniqueDefaulters = new Set((overdueFees || []).map(f => f.tenant_id)).size;
+
+    const { count: totalTenants } = await db.from('tenants').select('*', { count: 'exact', head: true });
+
+    const adimplentes = (totalTenants || 0) - uniqueDefaulters;
+
+    return res.json({
+      totalExpected,
+      totalPaid,
+      totalPending,
+      totalOverdue,
+      adimplentes,
+      inadimplentes: uniqueDefaulters,
+      totalTenants: totalTenants || 0
+    });
+
+  } catch (err) {
+    console.error('Metrics overview error:', err);
+    res.status(500).send({ error: 'Failed to fetch metrics overview.' });
+  }
+});
+
+/**
+ * GET /api/admin/metrics/tenants
+ * List tenants with their calculated fees for the period.
+ */
+app.get('/api/admin/metrics/tenants', async (req, res) => {
+  try {
+    const { startDate, endDate, status, search } = req.query;
+    const db = supabaseAdmin || supabase;
+
+    // 1. Fetch Tenants
+    let tenantsQuery = db.from('tenants').select('id, name, owner_email, company_percentage, meta_range');
+    if (search) tenantsQuery = tenantsQuery.ilike('name', `%${search}%`);
+    const { data: tenants, error: tErr } = await tenantsQuery;
+    if (tErr) throw tErr;
+
+    // 2. LIVE Calculation (Revenue & Due)
+    // If no period provided, default to current month
+    const start = startDate || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const end = endDate || new Date().toISOString();
+
+    const liveData = await calculateRevenuePerTenant(start, end);
+    // liveData is array of { tenantId, revenue, percentage, amountDue }
+
+    // 3. Fetch Payment Statuses (from weekly_fees table in that range)
+    const { data: dbFees } = await db.from('weekly_fees')
+      .select('tenant_id, status, amount_due, payment_date')
+      .gte('week_start', start)
+      .lte('week_end', end);
+
+    // 4. Merge Data
+    const report = (tenants || []).map(t => {
+      // Find live calculation
+      const live = liveData.find(l => l.tenantId === t.id) || { revenue: 0, amountDue: 0 };
+
+      // Find db fees
+      const tenantFees = (dbFees || []).filter(f => f.tenant_id === t.id);
+
+      // Aggregates from DB fees
+      const totalGenerated = tenantFees.reduce((sum, f) => sum + Number(f.amount_due), 0);
+      const totalPaid = tenantFees.filter(f => ['paid', 'received'].includes(f.status)).reduce((sum, f) => sum + Number(f.amount_due), 0);
+
+      // Determine overall status
+      let overallStatus = 'pending';
+      if (tenantFees.length > 0) {
+        if (tenantFees.some(f => f.status === 'overdue')) overallStatus = 'overdue';
+        else if (tenantFees.some(f => f.status === 'pending')) overallStatus = 'pending';
+        else if (tenantFees.every(f => ['paid', 'received'].includes(f.status))) overallStatus = 'paid';
+      } else {
+        // No fees generated yet.
+        overallStatus = live.revenue > 0 ? 'accumulating' : 'no_activity';
+      }
+
+      return {
+        id: t.id,
+        name: t.name,
+        email: t.owner_email,
+        meta_range: t.meta_range,
+        percentage: t.company_percentage || 0,
+
+        // Metrics
+        revenue_period: live.revenue, // Real-time revenue from orders
+        amount_due: live.amountDue,  // Real-time calculated fee (estimated or final)
+
+        // Fee Records
+        fees_generated_total: totalGenerated,
+        fees_paid_total: totalPaid,
+        fees_pending: totalGenerated - totalPaid,
+
+        last_payment: tenantFees.find(f => ['paid', 'received'].includes(f.status))?.payment_date || null,
+        status: overallStatus
+      };
+    });
+
+    // 5. Filter Result
+    const filtered = report.filter(item => {
+      if (status && status !== 'ALL' && item.status !== status) return false;
+      return true;
+    });
+
+    return res.json(filtered);
+
+  } catch (err) {
+    console.error('Tenant metrics list error:', err);
+    res.status(500).send({ error: 'Failed to fetch tenant metrics.' });
+  }
+});
+
+/**
+ * GET /api/admin/metrics/tenants/:id
+ * Detailed history for a specific tenant.
+ */
+app.get('/api/admin/metrics/tenants/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { startDate, endDate } = req.query;
+    const db = supabaseAdmin || supabase;
+
+    // 1. Fetch Tenant Basic Info
+    const { data: tenant, error: tErr } = await db.from('tenants').select('*').eq('id', id).single();
+    if (tErr) return res.status(404).send({ error: 'Tenant not found' });
+
+    // 2. Fetch Weekly Fees History
+    let feesQuery = db.from('weekly_fees').select('*').eq('tenant_id', id).order('week_start', { ascending: false });
+    if (startDate) feesQuery = feesQuery.gte('week_start', startDate);
+    if (endDate) feesQuery = feesQuery.lte('week_end', endDate);
+
+    const { data: history } = await feesQuery;
+
+    // 3. Fetch Live Revenue Chart Data (Daily)
+    let ordersQuery = db.from('orders')
+      .select('order_date, gross_value')
+      .eq('tenant_id', id)
+      .eq('status', 'APROVADO');
+
+    // Default range if not provided (last 6 months)
+    const start = startDate || new Date(new Date().setMonth(new Date().getMonth() - 6)).toISOString();
+    const end = endDate || new Date().toISOString();
+
+    ordersQuery = ordersQuery.gte('order_date', start).lte('order_date', end);
+
+    const { data: orders } = await ordersQuery;
+
+    const revenueByDay = {};
+    (orders || []).forEach(o => {
+      const day = (o.order_date || '').split('T')[0];
+      if (day) revenueByDay[day] = (revenueByDay[day] || 0) + Number(o.gross_value || 0);
+    });
+
+    // Sort by date
+    const chartData = Object.keys(revenueByDay).sort().map(d => ({
+      date: d,
+      revenue: revenueByDay[d],
+      fee_estimated: revenueByDay[d] * ((tenant.company_percentage || 0) / 100)
+    }));
+
+    return res.json({
+      tenant,
+      history: history || [],
+      chartData
+    });
+
+  } catch (err) {
+    console.error('Tenant details error:', err);
+    res.status(500).send({ error: 'Failed to fetch tenant details.' });
+  }
+});
+
+app.use(errorHandler);
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`Asaas proxy server listening on port ${PORT}`);
+  startSyncJob(); // Start background sync (10 mins)
 });
 

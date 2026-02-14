@@ -42,6 +42,7 @@ export interface Plan {
   adCreditSemiannual?: number;
   adCreditYearly?: number;
   orderIndex?: number;
+  discountUpfrontPercent?: number;
 }
 
 export interface User {
@@ -77,6 +78,7 @@ export interface Tenant {
   pendingBillingCycle?: 'quarterly' | 'semiannual' | 'yearly';
   pendingPaymentUrl?: string;
   document?: string;
+  metaRange?: '0-10k' | '10k-100k' | '100k-1M';
   // Admin Stats
   companyPercentage?: number;
   cachedGrossRevenue?: number;
@@ -204,6 +206,24 @@ export interface GoalProgress {
   goals: Goal[];
 }
 
+export interface AsaasSubscription {
+  id: string;
+  customer: string;
+  value: number;
+  nextDueDate: string;
+  status: 'ACTIVE' | 'EXPIRED' | 'OVERDUE' | 'CANCELED';
+  billingType: string;
+  cycle: string;
+  description?: string;
+}
+
+export interface AsaasCustomer {
+  id: string;
+  name: string;
+  email: string;
+  cpfCnpj?: string;
+}
+
 export interface AppState {
   currentUser: User | null;
   users: User[]; // All users visible to the current user
@@ -217,7 +237,45 @@ export interface AppState {
   influencers: Influencer[];
   commSettings: CommSettings;
   settings: AppSettings;
+  asaasConfig: { api_key: string, environment: string, webhook_secret: string };
   products: Product[];
   categories: Category[];
   goalsProgress: GoalProgress | null;
+  asaasSubscriptions?: AsaasSubscription[];
+  asaasCustomers?: AsaasCustomer[];
+  paymentRequests?: PaymentRequest[];
+  weeklyFees?: WeeklyFee[];
+}
+
+export interface PaymentRequest {
+  id: string;
+  userId: string;
+  planId: string;
+  cycle: 'quarterly' | 'semiannual' | 'yearly';
+  billingType: 'monthly' | 'upfront';
+  paymentMethod?: 'BOLETO' | 'PIX' | 'CREDIT_CARD';
+  status: 'pending' | 'created' | 'paid' | 'canceled' | 'expired';
+  asaasPaymentId?: string;
+  asaasInvoiceUrl?: string;
+  billingValue: number;
+  dueDate: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WeeklyFee {
+  id: string;
+  tenantId: string;
+  weekStart: string;
+  weekEnd: string;
+  revenueWeek: number;
+  percentApplied: number;
+  amountDue: number;
+  status: 'pending' | 'created' | 'paid' | 'overdue' | 'canceled';
+  asaasPaymentId?: string;
+  asaasInvoiceUrl?: string;
+  dueDate?: string;
+  paymentDate?: string;
+  createdAt: string;
+  updatedAt: string;
 }

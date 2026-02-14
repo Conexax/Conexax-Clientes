@@ -33,7 +33,8 @@ const PlanManagement: React.FC = () => {
     adCreditQuarterly: 0,
     adCreditSemiannual: 0,
     adCreditYearly: 0,
-    orderIndex: 0
+    orderIndex: 0,
+    discountUpfrontPercent: 0
   });
 
   const handleOpenModal = (plan?: Plan) => {
@@ -66,7 +67,8 @@ const PlanManagement: React.FC = () => {
         adCreditQuarterly: 0,
         adCreditSemiannual: 0,
         adCreditYearly: 0,
-        orderIndex: 0
+        orderIndex: 0,
+        discountUpfrontPercent: 0
       });
     }
     setShowModal(true);
@@ -269,7 +271,12 @@ const PlanManagement: React.FC = () => {
 
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-white/5">
-                <div className="space-y-2 col-span-2">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-rose-500 uppercase">Desconto Pagamento À Vista (%)</label>
+                  <input type="number" min="0" max="100" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-rose-500" value={formData.discountUpfrontPercent || 0} onChange={e => setFormData({ ...formData, discountUpfrontPercent: parseFloat(e.target.value) })} />
+                  <p className="text-[9px] text-slate-500">Percentual de desconto aplicado apenas na opção "Pagar à Vista".</p>
+                </div>
+                <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-500 uppercase">Descrição Mensagens (Ex: "Cobrado a cada 3 meses")</label>
                   <div className="grid grid-cols-3 gap-4">
                     <input type="text" placeholder="Tri" className="bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-[10px] text-white" value={formData.descriptionQuarterly || ''} onChange={e => setFormData({ ...formData, descriptionQuarterly: e.target.value })} />
@@ -277,7 +284,6 @@ const PlanManagement: React.FC = () => {
                     <input type="text" placeholder="Anu" className="bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-[10px] text-white" value={formData.descriptionYearly || ''} onChange={e => setFormData({ ...formData, descriptionYearly: e.target.value })} />
                   </div>
                 </div>
-
               </div>
 
 

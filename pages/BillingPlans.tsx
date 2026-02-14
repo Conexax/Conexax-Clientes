@@ -1,16 +1,31 @@
 
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
+import { toast } from 'react-hot-toast';
 import SubscriptionPanel from '../components/SubscriptionPanel';
+import PreCheckout from '../components/PreCheckout';
+import { PaymentSuccess } from '../components/PaymentSuccess';
 
 const BillingPlans: React.FC = () => {
+  const navigate = useNavigate();
   const { state, actions } = useData();
   const [loading, setLoading] = useState(false);
   const [showInvoices, setShowInvoices] = useState(false);
   const currentPlan = state.plans.find(p => p.id === state.activeTenant?.planId);
   const [billingCycle, setBillingCycle] = useState<'quarterly' | 'semiannual' | 'yearly'>('quarterly');
 
-  const pendingPlan = state.plans.find(p => p.id === state.activeTenant?.pendingPlanId);
+  const [manualCheckoutUrl, setManualCheckoutUrl] = useState<string | null>(null);
+
+  const [selectedPlanForModal, setSelectedPlanForModal] = useState<any>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'CREDIT_CARD' | 'BOLETO' | 'PIX'>('CREDIT_CARD');
+  const [successCheckoutUrl, setSuccessCheckoutUrl] = useState<string | null>(null);
+
+  // Fetch payments on mount or when invoices are shown
+  React.useEffect(() => {
+    actions.fetchMyPayments();
+  }, [showInvoices]); // Reload when opening modal to be sure
 
   const getPrice = (plan: any) => {
     switch (billingCycle) {
@@ -38,18 +53,46 @@ const BillingPlans: React.FC = () => {
     }
   };
 
-  const handleUpgrade = async (planId: string) => {
+  const handleUpgrade = (plan: any) => {
     if (loading) return;
+    setSelectedPlanForModal(plan);
+    setShowPaymentModal(true);
+  };
+
+  const executeUpgrade = async (billingType: 'monthly' | 'upfront', paymentMethodArg?: 'CREDIT_CARD' | 'BOLETO' | 'PIX') => {
+    if (!selectedPlanForModal) return;
+
+    // Use argument or state
+    const methodToUse = paymentMethodArg || paymentMethod;
+
+    // Prefight check for document
+    const doc = (state.activeTenant?.document || '').replace(/\D/g, '');
+    if (!doc || doc.length < 11) {
+      toast.error('Documento (CPF/CNPJ) inválido ou ausente. Por favor, atualize em "Dados do Lojista" antes de assinar.');
+      return;
+    }
+
     setLoading(true);
+    setManualCheckoutUrl(null); // Reset previous
+
     try {
-      const paymentUrl = await actions.subscribeToPlan(planId, billingCycle);
-      if (paymentUrl && typeof paymentUrl === 'string') {
-        window.open(paymentUrl, '_blank');
+      const response = await actions.subscribeToPlan(selectedPlanForModal.id, billingCycle, billingType, methodToUse);
+      console.log('[Debug] Subscribe response full:', response);
+
+      if (response?.checkoutUrl) {
+        console.log('[Debug] checkoutUrl found:', response.checkoutUrl);
+        toast.success('Fatura gerada com sucesso!');
+        setSuccessCheckoutUrl(response.checkoutUrl);
+        return;
+      } else {
+        console.warn('[Debug] No checkoutUrl found in response!');
       }
-      // Optional: success toast
+
+      throw new Error('Não foi possível gerar o link de checkout. Tente novamente.');
     } catch (e: any) {
       console.error(e);
-      alert(`Erro no upgrade: ${e.message || 'Erro desconhecido'}. Verifique se a integração Asaas está configurada no Admin.`);
+      toast.error(`Falha no upgrade: ${e.message || 'Erro de conexão'}`);
+      // Keep modal open so user can retry
     } finally {
       setLoading(false);
     }
@@ -62,7 +105,7 @@ const BillingPlans: React.FC = () => {
         <p className="text-slate-500 font-medium">Gerencie seu nível de serviço e veja os benefícios do ecossistema Conexx.</p>
       </header>
 
-      <SubscriptionPanel />
+
 
       {/* PLANO ATUAL */}
       <section className="glass-panel p-8 rounded-3xl border-primary/20 bg-primary/5 relative overflow-hidden">
@@ -134,17 +177,17 @@ const BillingPlans: React.FC = () => {
             .filter(p => p.active)
             .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
             .map((plan) => {
-              const explicitMonthly = billingCycle === 'quarterly' ? plan.monthlyPriceQuarterly : billingCycle === 'semiannual' ? plan.monthlyPriceSemiannual : plan.monthlyPriceYearly;
-              const cycleInstallments = billingCycle === 'quarterly' ? plan.installmentsQuarterly : billingCycle === 'semiannual' ? plan.installmentsSemiannual : plan.installmentsYearly;
-              const cycleTrafficFee = billingCycle === 'quarterly' ? plan.trafficFeePercentQuarterly : billingCycle === 'semiannual' ? plan.trafficFeePercentSemiannual : plan.trafficFeePercentYearly;
-              const cycleAdCredit = billingCycle === 'quarterly' ? plan.adCreditQuarterly : billingCycle === 'semiannual' ? plan.adCreditSemiannual : plan.adCreditYearly;
+              const explicitMonthly = billingCycle === 'quarterly' ? plan.monthlyPriceQuarterly : billingCycle === 'semiannual' ? plan.monthlyPriceSemiannual : billingCycle === 'yearly' ? plan.monthlyPriceYearly : 0;
+              const cycleInstallments = billingCycle === 'quarterly' ? plan.installmentsQuarterly : billingCycle === 'semiannual' ? plan.installmentsSemiannual : billingCycle === 'yearly' ? plan.installmentsYearly : 0;
+              const cycleTrafficFee = billingCycle === 'quarterly' ? plan.trafficFeePercentQuarterly : billingCycle === 'semiannual' ? plan.trafficFeePercentSemiannual : billingCycle === 'yearly' ? plan.trafficFeePercentYearly : 0;
+              const cycleAdCredit = billingCycle === 'quarterly' ? plan.adCreditQuarterly : billingCycle === 'semiannual' ? plan.adCreditSemiannual : billingCycle === 'yearly' ? plan.adCreditYearly : 0;
 
               const displayMonthly = explicitMonthly || (getPrice(plan) / (billingCycle === 'quarterly' ? 3 : billingCycle === 'semiannual' ? 6 : 12));
               const trafficFee = cycleTrafficFee || plan.trafficFeePercent || 0;
               const adCredit = cycleAdCredit || plan.adCredit || 0;
 
               return (
-                <div key={plan.id} className={`glass-panel p-8 rounded-[40px] flex flex-col border-2 transition-all ${plan.recommended ? 'border-primary shadow-2xl shadow-primary/10' : 'border-white/5'}`}>
+                <div key={plan.id} className={`glass-panel p-8 rounded-[40px] flex flex-col border-2 transition-all ${plan.recommended ? 'border-primary shadow-2xl shadow-primary/10' : 'border-white/5'} relative overflow-hidden`}>
                   {plan.recommended && <span className="absolute top-4 right-8 px-3 py-1 bg-primary text-neutral-950 text-[10px] font-black uppercase tracking-tighter rounded-full">Recomendado</span>}
 
                   <h4 className="text-2xl font-black text-white">{plan.name}</h4>
@@ -181,7 +224,7 @@ const BillingPlans: React.FC = () => {
                   )}
 
                   <div className="mt-8 space-y-4 flex-1">
-                    {plan.features.map((feature, i) => (
+                    {plan.features.map((feature: string, i: number) => (
                       <div key={i} className="flex items-start gap-3 text-xs">
                         <span className="material-symbols-outlined text-primary text-lg">check_circle</span>
                         <span className="text-slate-300 font-medium">{feature}</span>
@@ -202,7 +245,7 @@ const BillingPlans: React.FC = () => {
                       <button
                         type="button"
                         disabled={loading || state.activeTenant?.planId === plan.id}
-                        onClick={() => handleUpgrade(plan.id)}
+                        onClick={() => handleUpgrade(plan)}
                         className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest transition-all ${state.activeTenant?.planId === plan.id
                           ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 cursor-default'
                           : 'bg-primary text-neutral-950 hover:bg-primary-dark shadow-xl shadow-primary/20'
@@ -237,6 +280,7 @@ const BillingPlans: React.FC = () => {
           </div>
         </div>
       </section>
+
       {/* MODAL DE FATURAS */}
       {showInvoices && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -246,71 +290,109 @@ const BillingPlans: React.FC = () => {
               <button onClick={() => setShowInvoices(false)} className="text-slate-500 hover:text-white transition-all"><span className="material-symbols-outlined">close</span></button>
             </div>
 
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-              {/* PENDING INVOICE */}
-              {pendingPlan && (
-                <div className="p-6 bg-primary/5 border border-primary/20 rounded-2xl space-y-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="px-2 py-0.5 bg-amber-500/20 text-amber-500 text-[9px] font-black uppercase tracking-widest rounded border border-amber-500/30">Aguardando Pagamento</span>
-                      <h4 className="text-lg font-black text-white mt-2">Plano {pendingPlan.name}</h4>
-                      <p className="text-xs text-slate-400">Ciclo: {state.activeTenant?.pendingBillingCycle}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xl font-black text-white">R$ {(state.activeTenant?.pendingBillingCycle === 'quarterly' ? pendingPlan.priceQuarterly : state.activeTenant?.pendingBillingCycle === 'semiannual' ? pendingPlan.priceSemiannual : pendingPlan.priceYearly).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3 pt-2">
-                    <button
-                      onClick={() => state.activeTenant?.pendingPaymentUrl && window.open(state.activeTenant.pendingPaymentUrl, '_blank')}
-                      disabled={!state.activeTenant?.pendingPaymentUrl}
-                      className="flex-1 py-3 bg-primary text-neutral-950 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary-dark transition-all disabled:opacity-50"
-                    >
-                      Pagar Agora
-                    </button>
-                    <button
-                      disabled={loading}
-                      onClick={async () => {
-                        if (!state.activeTenant) return;
-                        setLoading(true);
-                        try {
-                          await actions.confirmPayment(state.activeTenant.id);
-                          setShowInvoices(false);
-                        } catch (e) {
-                          console.error(e);
-                        } finally {
-                          setLoading(false);
-                        }
-                      }}
-                      className="flex-1 py-3 bg-white/5 border border-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all disabled:opacity-50"
-                    >
-                      {loading ? 'Confirmando...' : 'Confirmar (Simular)'}
-                    </button>
-                  </div>
-                </div>
-              )}
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 scrollbar-thin">
+              {state.paymentRequests && state.paymentRequests.length > 0 ? (
+                state.paymentRequests.map(req => {
+                  const planName = state.plans.find(p => p.id === req.planId)?.name || 'Plano Desconhecido';
+                  const isPending = req.status === 'pending' || req.status === 'created';
+                  const isPaid = req.status === 'paid' || req.status === 'captured'; // Asaas statuses
+                  const isOverdue = req.status === 'overdue';
 
-              {/* SIMULATED PAST INVOICE */}
-              <div className="p-6 bg-black/40 border border-white/5 rounded-2xl flex justify-between items-center opacity-70">
-                <div>
-                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-500 text-[9px] font-black uppercase tracking-widest rounded border border-emerald-500/30">Pago</span>
-                  <p className="text-sm font-bold text-white mt-1">Plano Starter - Assinatura Inicial</p>
-                  <p className="text-[10px] text-slate-500">Fatura #0001 • {new Date().toLocaleDateString('pt-BR')}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-black text-white">R$ 0,00</p>
-                </div>
-              </div>
+                  return (
+                    <div key={req.id} className={`p-4 rounded-2xl border ${isPending ? 'bg-amber-500/5 border-amber-500/20' : isPaid ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-white/5 border-white/10'}`}>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded border ${isPending ? 'bg-amber-500/20 text-amber-500 border-amber-500/30' :
+                            isPaid ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' :
+                              isOverdue ? 'bg-rose-500/20 text-rose-500 border-rose-500/30' :
+                                'bg-slate-500/20 text-slate-500 border-slate-500/30'
+                            }`}>
+                            {isPending ? 'Aguardando Pagamento' : isPaid ? 'Pago' : isOverdue ? 'Vencido' : req.status}
+                          </span>
+                          <h4 className="text-sm font-bold text-white mt-2">Plano {planName}</h4>
+                          <p className="text-[10px] text-slate-400">Criado em: {new Date(req.createdAt).toLocaleDateString('pt-BR')}</p>
+                          {req.dueDate && <p className="text-[10px] text-slate-500">Vencimento: {new Date(req.dueDate).toLocaleDateString('pt-BR')}</p>}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-black text-white">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(req.billingValue)}
+                          </p>
+                          {req.billingType && <p className="text-[10px] text-slate-500 uppercase">{req.billingType === 'upfront' ? 'À Vista/Ciclo' : 'Mensal'}</p>}
+                        </div>
+                      </div>
 
-              {!pendingPlan && (
+                      {/* Actions for Pending */}
+                      {isPending && (
+                        <div className="flex gap-2 mt-3 pt-3 border-t border-white/5">
+                          {req.asaasInvoiceUrl || req.checkoutUrl ? (
+                            <button
+                              onClick={() => window.open(req.asaasInvoiceUrl || req.checkoutUrl, '_blank')}
+                              className="flex-1 py-2 bg-primary text-neutral-950 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-primary-dark transition-all"
+                            >
+                              Pagar Agora
+                            </button>
+                          ) : (
+                            <div className="flex-1 text-[10px] text-slate-500 font-bold uppercase italic flex items-center justify-center">
+                              Link indisponível
+                            </div>
+                          )}
+
+                          <button
+                            onClick={async () => {
+                              if (confirm("Deseja cancelar este pedido pendente?")) {
+                                setLoading(true);
+                                try {
+                                  await actions.cancelPaymentRequest(req.id);
+                                  await actions.fetchMyPayments(); // Refresh
+                                } catch (e) { console.error(e); }
+                                finally { setLoading(false); }
+                              }
+                            }}
+                            disabled={loading}
+                            className="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-bold uppercase hover:bg-red-500/20 hover:text-red-400 transition-all"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
                 <div className="text-center py-10">
                   <span className="material-symbols-outlined text-slate-700 text-4xl mb-2">receipt_long</span>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Nenhuma fatura pendente</p>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Nenhuma fatura encontrada</p>
                 </div>
               )}
             </div>
           </div>
         </div>
+      )}
+
+      {/* PRE-CHECKOUT FULL SCREEN OVERLAY */}
+      {showPaymentModal && selectedPlanForModal && (
+        successCheckoutUrl ? (
+          <PaymentSuccess
+            checkoutUrl={successCheckoutUrl}
+            onClose={() => {
+              setShowPaymentModal(false);
+              setSuccessCheckoutUrl(null);
+              setManualCheckoutUrl(null);
+            }}
+          />
+        ) : (
+          <PreCheckout
+            plan={selectedPlanForModal}
+            billingCycle={billingCycle}
+            onClose={() => setShowPaymentModal(false)}
+            onConfirm={(billingType, method) => {
+              setPaymentMethod(method);
+              return executeUpgrade(billingType, method);
+            }}
+            loading={loading}
+            manualCheckoutUrl={manualCheckoutUrl}
+          />
+        )
       )}
     </div>
   );

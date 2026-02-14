@@ -1,170 +1,189 @@
-import React, { useState, useMemo } from 'react';
-import { useData } from '../context/DataContext';
+import React, { useState, useEffect } from 'react';
 import DateRangeFilter from '../components/DateRangeFilter';
+import axios from 'axios';
 
 const AdminStatement: React.FC = () => {
-    const { state } = useData();
     const [dateRange, setDateRange] = useState<{ start: Date, end: Date }>({
-        start: new Date(new Date().setHours(0, 0, 0, 0)),
+        start: new Date(new Date().setDate(new Date().getDate() - 30)), // Last 30 days default
         end: new Date(new Date().setHours(23, 59, 59, 999))
     });
-    const [filterPeriod, setFilterPeriod] = useState('today');
+    const [page, setPage] = useState(1);
+    const [transactions, setTransactions] = useState<any[]>([]);
+    const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
+    const [loading, setLoading] = useState(false);
+    const [syncing, setSyncing] = useState(false);
 
-    const handleFilterChange = (start: Date, end: Date, period: string) => {
+    const handleFilterChange = (start: Date, end: Date) => {
         setDateRange({ start, end });
-        setFilterPeriod(period);
+        setPage(1); // Reset to first page
     };
 
-    const statementData = useMemo(() => {
-        return state.tenants.map(tenant => {
-            // Filter orders for this tenant
-            const tenantOrders = state.orders.filter(o => {
-                const d = new Date(o.date);
-                const validStatus = o.status === 'APROVADO' || (o.status as any) === 'paid' || (o.status as any) === 'approved';
-                return o.tenantId === tenant.id && validStatus && d >= dateRange.start && d <= dateRange.end;
+    const fetchExtrato = async () => {
+        try {
+            setLoading(true);
+            const res = await axios.get('/api/admin/extrato', {
+                params: {
+                    page,
+                    limit: 10,
+                    startDate: dateRange.start.toISOString(),
+                    endDate: dateRange.end.toISOString()
+                }
             });
+            setTransactions(res.data.data || []);
+            setMeta(res.data.meta || { total: 0, totalPages: 1 });
+        } catch (err) {
+            console.error("Failed to fetch extrato", err);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-            const grossRevenue = tenantOrders.reduce((acc, o) => acc + (Number(o.value) || 0), 0);
-            const companyPercentage = Number(tenant.companyPercentage || 0);
-            const commission = grossRevenue * (companyPercentage / 100);
+    useEffect(() => {
+        fetchExtrato();
+    }, [dateRange, page]);
 
-            return {
-                tenant,
-                grossRevenue,
-                companyPercentage,
-                commission,
-                orderCount: tenantOrders.length,
-                ids: tenantOrders.map(o => o.id)
-            };
-        }).sort((a, b) => b.commission - a.commission); // Sort by highest commission
-    }, [state.orders, state.tenants, dateRange]);
-
-    const totals = useMemo(() => {
-        return statementData.reduce((acc, curr) => ({
-            revenue: acc.revenue + curr.grossRevenue,
-            commission: acc.commission + curr.commission
-        }), { revenue: 0, commission: 0 });
-    }, [statementData]);
+    const handleSync = async () => {
+        if (syncing) return;
+        setSyncing(true);
+        try {
+            await axios.post('/api/asaas/sync-data');
+            // Refresh data
+            await fetchExtrato();
+            alert("Sincronização concluída com sucesso!");
+        } catch (error) {
+            console.error("Sync failed", error);
+            alert("Erro ao sincronizar dados do Asaas.");
+        } finally {
+            setSyncing(false);
+        }
+    };
 
     return (
-        <div className="space-y-10">
+        <div className="space-y-10" >
             <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
                 <div>
-                    <h2 className="text-4xl font-black text-white mb-2">Extrato <span className="text-primary italic">Detalhado</span></h2>
-                    <p className="text-slate-500 font-medium italic">Relatório de performance e comissões por lojista.</p>
+                    <h2 className="text-4xl font-black text-white mb-2">Extrato <span className="text-primary italic">Financeiro</span></h2>
+                    <p className="text-slate-500 font-medium italic">Histórico detalhado de transações (Fonte: Asaas).</p>
                 </div>
 
-                <DateRangeFilter onFilterChange={handleFilterChange} />
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={handleSync}
+                        disabled={syncing}
+                        className="btn btn-secondary flex items-center gap-2"
+                    >
+                        <span className={`material-symbols-outlined ${syncing ? 'animate-spin' : ''}`}>sync</span>
+                        {syncing ? 'Sincronizando...' : 'Sincronizar Asaas'}
+                    </button>
+                    <DateRangeFilter onFilterChange={handleFilterChange} />
+                </div>
             </header>
 
-            {/* Totais Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="glass-panel p-6 rounded-2xl stat-card">
-                    <div className="flex justify-between items-center mb-4">
-                        <span className="material-symbols-outlined text-slate-600">hub</span>
-                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Global</span>
-                    </div>
-                    <p className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-tighter">Receita Bruta ({filterPeriod === 'total' ? 'Total' : 'Período'})</p>
-                    <h4 className="text-2xl font-black text-primary">R$ {totals.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
-                </div>
-
-                <div className="glass-panel p-6 rounded-2xl stat-card">
-                    <div className="flex justify-between items-center mb-4">
-                        <span className="material-symbols-outlined text-slate-600">payments</span>
-                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Global</span>
-                    </div>
-                    <p className="text-slate-500 text-xs font-bold mb-1 uppercase tracking-tighter">Comissão da Empresa</p>
-                    <h4 className="text-2xl font-black text-emerald-400">R$ {totals.commission.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
-                </div>
-            </div>
-
             {/* Table */}
-            <section className="space-y-4">
+            < section className="space-y-4" >
                 {/* Desktop Table */}
-                <div className="hidden lg:block glass-panel p-6 rounded-2xl">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="border-b border-white/5">
-                                    <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Lojista</th>
-                                    <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Pedidos</th>
-                                    <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Receita Bruta</th>
-                                    <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Percentual (%)</th>
-                                    <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right text-emerald-400">Comissão (R$)</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-white/5">
-                                {statementData.map(row => (
-                                    <tr key={row.tenant.id} className="hover:bg-white/5 transition-colors">
-                                        <td className="py-4 px-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center text-primary font-bold text-xs uppercase">
-                                                    {(row.tenant.name || 'L').substring(0, 2)}
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-white">{row.tenant.name}</p>
-                                                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">{row.tenant.ownerEmail}</p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="py-4 px-4 text-sm text-slate-300 text-right font-medium">{row.orderCount}</td>
-                                        <td className="py-4 px-4 text-sm text-white text-right font-bold">R$ {row.grossRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                                        <td className="py-4 px-4 text-sm text-slate-400 text-right">{row.companyPercentage}%</td>
-                                        <td className="py-4 px-4 text-sm text-emerald-400 text-right font-black">R$ {row.commission.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                < div className="hidden lg:block glass-panel p-6 rounded-2xl" >
+                    {loading && <div className="text-center py-4 text-slate-400">Carregando...</div>}
+                    {!loading && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b border-white/5">
+                                        <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Data</th>
+                                        <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Descrição</th>
+                                        <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th>
+                                        <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Tipo</th>
+                                        <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Valor Bruto</th>
+                                        <th className="py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right text-emerald-400">Valor Líquido</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {transactions.map(item => (
+                                        <tr key={item.id} className="hover:bg-white/5 transition-colors">
+                                            <td className="py-4 px-4 text-sm text-slate-300 font-medium">
+                                                {new Date(item.due_date || item.created_at).toLocaleDateString('pt-BR')}
+                                            </td>
+                                            <td className="py-4 px-4">
+                                                <p className="text-sm font-bold text-white">{item.description || 'Sem descrição'}</p>
+                                                <p className="text-[10px] text-slate-500 uppercase tracking-widest">{item.invoice_url ? <a href={item.invoice_url} target="_blank" rel="noreferrer" className="text-primary hover:underline">Ver Fatura</a> : item.id}</p>
+                                            </td>
+                                            <td className="py-4 px-4">
+                                                <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${['RECEIVED', 'CONFIRMED', 'PAID'].includes(item.status) ? 'bg-emerald-500/10 text-emerald-400' :
+                                                        ['PENDING'].includes(item.status) ? 'bg-yellow-500/10 text-yellow-400' :
+                                                            'bg-red-500/10 text-red-400'
+                                                    }`}>
+                                                    {item.status}
+                                                </span>
+                                            </td>
+                                            <td className="py-4 px-4 text-sm text-slate-400">{item.billing_type || 'UNDEFINED'}</td>
+                                            <td className="py-4 px-4 text-sm text-white text-right font-bold">R$ {(item.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                            <td className="py-4 px-4 text-sm text-emerald-400 text-right font-black">R$ {(item.net_value || item.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div >
 
                 {/* Mobile Cards */}
-                <div className="lg:hidden space-y-4">
-                    {statementData.map(row => (
-                        <div key={row.tenant.id} className="glass-panel p-6 rounded-2xl border-white/5 space-y-4">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-black uppercase text-sm">
-                                    {(row.tenant.name || 'L').substring(0, 2)}
+                < div className="lg:hidden space-y-4" >
+                    {
+                        transactions.map(item => (
+                            <div key={item.id} className="glass-panel p-6 rounded-2xl border-white/5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${['RECEIVED', 'CONFIRMED', 'PAID'].includes(item.status) ? 'bg-emerald-500/10 text-emerald-400' :
+                                            ['PENDING'].includes(item.status) ? 'bg-yellow-500/10 text-yellow-400' :
+                                                'bg-red-500/10 text-red-400'
+                                        }`}>
+                                        {item.status}
+                                    </span>
+                                    <span className="text-xs text-slate-500">{new Date(item.due_date).toLocaleDateString()}</span>
                                 </div>
                                 <div>
-                                    <h4 className="text-base font-bold text-white">{row.tenant.name}</h4>
-                                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">{row.tenant.ownerEmail}</p>
+                                    <h4 className="text-sm font-bold text-white">{item.description}</h4>
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-1">
+                                        {item.invoice_url && <a href={item.invoice_url} target="_blank" rel="noreferrer" className="text-primary underline">Ver Fatura</a>}
+                                    </p>
+                                </div>
+                                <div className="flex justify-between items-center pt-2 border-t border-white/5">
+                                    <span className="text-slate-400 text-xs">Valor</span>
+                                    <span className="text-white font-bold">R$ {item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                 </div>
                             </div>
+                        ))
+                    }
+                </div >
 
-                            <div className="grid grid-cols-2 gap-4 py-4 border-y border-white/5">
-                                <div>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Pedidos</p>
-                                    <p className="text-sm font-bold text-white tracking-tight">{row.orderCount}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Percentual</p>
-                                    <p className="text-sm font-bold text-slate-300 tracking-tight">{row.companyPercentage}%</p>
-                                </div>
-                            </div>
-
-                            <div className="flex justify-between items-center bg-black/40 p-4 rounded-xl border border-white/5">
-                                <div>
-                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Receita Bruta</p>
-                                    <p className="text-sm font-bold text-white">R$ {row.grossRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-[10px] font-black text-emerald-500/50 uppercase tracking-widest">Sua Comissão</p>
-                                    <p className="text-lg font-black text-emerald-400 leading-none">R$ {row.commission.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                                </div>
-                            </div>
+                {
+                    !loading && transactions.length === 0 && (
+                        <div className="text-center py-20 glass-panel rounded-2xl border-dashed border-neutral-border/30">
+                            <span className="material-symbols-outlined text-slate-700 text-6xl mb-4">analytics</span>
+                            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Nenhum dado encontrado</p>
                         </div>
-                    ))}
-                </div>
+                    )
+                }
 
-                {statementData.length === 0 && (
-                    <div className="text-center py-20 glass-panel rounded-2xl border-dashed border-neutral-border/30">
-                        <span className="material-symbols-outlined text-slate-700 text-6xl mb-4">analytics</span>
-                        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Nenhum dado encontrado</p>
-                    </div>
-                )}
-            </section>
-        </div>
+                {/* Pagination */}
+                <div className="flex items-center justify-between mt-4">
+                    <button
+                        disabled={page <= 1}
+                        onClick={() => setPage(p => p - 1)}
+                        className="px-4 py-2 rounded bg-white/5 text-white disabled:opacity-50 text-xs font-bold uppercase"
+                    >
+                        Anterior
+                    </button>
+                    <span className="text-slate-500 text-xs">Página {page} de {meta.totalPages}</span>
+                    <button
+                        disabled={page >= meta.totalPages}
+                        onClick={() => setPage(p => p + 1)}
+                        className="px-4 py-2 rounded bg-white/5 text-white disabled:opacity-50 text-xs font-bold uppercase"
+                    >
+                        Próxima
+                    </button>
+                </div>
+            </section >
+        </div >
     );
 };
 

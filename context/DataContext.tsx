@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useMemo, useEffect } from '
 import { Order, OrderStatus, AbandonedCheckout, AppSettings, AppState, User, Tenant, UserRole, Domain, Coupon, Influencer, CommSettings, Plan, Category, Product, Goal } from '../types';
 import { AuthService, YampiService } from '../backend/mockApi'; // Keep for other data for now
 import { supabase } from '../backend/supabaseClient';
-import { AsaasService } from '../backend/asaasService';
+import { toast } from 'react-hot-toast';
 
 interface DataContextType {
   state: AppState;
@@ -35,14 +35,26 @@ interface DataContextType {
     deleteInfluencer: (id: string) => void;
     saveCommSettings: (settings: CommSettings) => void;
     fetchGoalsProgress: (startDate: string, endDate: string) => Promise<any>;
-    subscribeToPlan: (planId: string, cycle: 'quarterly' | 'semiannual' | 'yearly') => Promise<string | void>;
+    subscribeToPlan: (planId: string, cycle: 'quarterly' | 'semiannual' | 'yearly', billingType?: 'monthly' | 'upfront', paymentMethod?: 'CREDIT_CARD' | 'BOLETO' | 'PIX') => Promise<any>;
+    generateCharge: (requestId: string, paymentMethod: string) => Promise<any>;
+    cancelPaymentRequest: (requestId: string) => Promise<void>;
     syncAllPlans: () => Promise<void>;
     syncAllTenants: () => Promise<void>;
     syncAllOrders: () => Promise<void>;
     confirmPayment: (tenantId: string) => Promise<void>;
     saveAsaasConfig: (config: any) => Promise<void>;
     syncAsaasConfig: () => Promise<void>;
+    syncAsaasData: () => Promise<void>;
+    forceSyncAsaasData: () => Promise<void>;
+    fetchAdminSubscriptions: () => Promise<any>;
+    fetchAdminClientDetails: (clientId: string) => Promise<any>;
+    fetchWeeklyFees: (tenantId: string) => Promise<void>;
+    generateWeeklyCharge: (id: string, paymentMethod: string) => Promise<any>;
+    cancelWeeklyFee: (id: string) => Promise<void>;
+    calculateWeeklyFees: (startDate: string, endDate: string) => Promise<any>;
+    previewWeeklyFees: (startDate: string, endDate: string) => Promise<any>;
     clearSyncError: () => void;
+    fetchMyPayments: () => Promise<void>;
   };
 }
 
@@ -69,6 +81,7 @@ const mapTenantFromDB = (dbTenant: any): Tenant => ({
   billingCycle: dbTenant.billing_cycle,
   nextBilling: dbTenant.next_billing,
   document: dbTenant.document,
+  metaRange: dbTenant.meta_range,
   companyPercentage: Number(dbTenant.company_percentage || 0),
   cachedGrossRevenue: Number(dbTenant.cached_gross_revenue || 0),
   pendingPlanId: dbTenant.pending_plan_id,
@@ -134,7 +147,8 @@ const mapPlanFromDB = (dbPlan: any): Plan => ({
   adCreditQuarterly: Number(dbPlan.ad_credit_quarterly || 0),
   adCreditSemiannual: Number(dbPlan.ad_credit_semiannual || 0),
   adCreditYearly: Number(dbPlan.ad_credit_yearly || 0),
-  orderIndex: Number(dbPlan.order_index || 0)
+  orderIndex: Number(dbPlan.order_index || 0),
+  discountUpfrontPercent: Number(dbPlan.discount_upfront_percent || 0)
 });
 
 const mapCouponFromDB = (dbCoupon: any): Coupon => ({
@@ -189,6 +203,22 @@ const mapGoalFromDB = (g: any): Goal => ({
   currency: g.currency || 'R$'
 });
 
+const mapPaymentRequestFromDB = (pr: any): any => ({
+  id: pr.id,
+  userId: pr.user_id,
+  planId: pr.plan_id,
+  cycle: pr.cycle,
+  billingType: pr.billing_type,
+  paymentMethod: pr.payment_method,
+  status: pr.status,
+  asaasPaymentId: pr.asaas_payment_id,
+  asaasInvoiceUrl: pr.asaas_invoice_url,
+  billingValue: Number(pr.billing_value || 0),
+  dueDate: pr.due_date,
+  createdAt: pr.created_at,
+  updatedAt: pr.updated_at
+});
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -212,7 +242,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     asaasConfig: { api_key: '', environment: 'sandbox', webhook_secret: '' },
     products: [],
     categories: [],
-    goalsProgress: null
+    goalsProgress: null,
+    asaasSubscriptions: [],
+    asaasCustomers: [],
+    weeklyFees: []
   });
 
   const syncAllPlans = async () => {
@@ -276,15 +309,26 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             let allUsers: User[] = [];
 
             if (mappedUser.role === UserRole.CONEXX_ADMIN) {
+              console.log("Admin Logged In - Restoring Session...");
               const { data: t } = await supabase.from('tenants').select('*');
               allTenants = (t || []).map(mapTenantFromDB);
               const { data: u } = await supabase.from('users').select('*');
               allUsers = (u || []).map(mapUserFromDB);
 
-              const { data: allOrders } = await supabase.from('orders').select('*');
+              console.log("Fetching Orders for Admin...");
+              const { data: allOrders, error: orderErr } = await supabase.from('orders').select('*');
+              if (orderErr) console.error("Error fetching orders:", orderErr);
+              console.log(`Fetched ${allOrders?.length} orders.`);
+
               const { data: allAbandoned } = await supabase.from('abandoned_checkouts').select('*');
 
-              actions.syncAsaasConfig();
+              // Inline syncAsaasConfig logic to avoid reference issues
+              try {
+                const { data: acVal, error: acErr } = await supabase.from('platform_settings').select('value').eq('key', 'asaas_config').single();
+                if (acVal && !acErr) {
+                  setState(prev => ({ ...prev, asaasConfig: acVal.value }));
+                }
+              } catch (e) { console.error("Error loading asaas config", e); }
 
               setState(prev => ({
                 ...prev,
@@ -294,6 +338,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } else if (mappedUser.tenantId) {
               const { data: u } = await supabase.from('users').select('*').eq('tenant_id', mappedUser.tenantId);
               allUsers = (u || []).map(mapUserFromDB);
+
+              // Fetch Orders & Abandoned for the specific tenant
+              const { data: tenantOrders } = await supabase.from('orders').select('*').eq('tenant_id', mappedUser.tenantId);
+              const { data: tenantAbandoned } = await supabase.from('abandoned_checkouts').select('*').eq('tenant_id', mappedUser.tenantId);
+
+              setState(prev => ({
+                ...prev,
+                orders: (tenantOrders || []).map(mapOrderFromDB),
+                abandonedCheckouts: (tenantAbandoned || []).map(mapAbCheckoutFromDB)
+              }));
             }
 
             const { data: dbPlans } = await supabase.from('plans').select('*');
@@ -393,6 +447,31 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     });
 
+    // --- Improved Stats Calculation for Graphs ---
+    const ordersByDayMap = new Map<string, number>();
+    const productPerfMap = new Map<string, { name: string, revenue: number, sales: number }>();
+
+    approved.forEach(o => {
+      // 1. Orders By Day
+      const dateKey = new Date(o.date).toLocaleDateString('pt-BR'); // DD/MM/YYYY
+      ordersByDayMap.set(dateKey, (ordersByDayMap.get(dateKey) || 0) + o.value);
+
+      // 2. Product Performance
+      const pName = o.product || 'Desconhecido';
+      const curr = productPerfMap.get(pName) || { name: pName, revenue: 0, sales: 0 };
+      curr.revenue += o.value;
+      curr.sales += 1;
+      productPerfMap.set(pName, curr);
+    });
+
+    // Convert Maps to Arrays for Recharts
+    const ordersByDay = Array.from(ordersByDayMap.entries())
+      .map(([day, value]) => ({ day, value }));
+
+    const productPerformance = Array.from(productPerfMap.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5); // Top 5
+
     return {
       totalRevenue: totalRevenue || 0,
       globalRevenue: totalRevenue || 0, // This should sum all tenants in a real DB
@@ -405,8 +484,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       influencerStats,
       totalTenants: state.tenants.length || 0,
       activeSyncs: state.tenants.filter(t => t.yampiToken).length || 0,
-      ordersByDay: [],
-      productPerformance: []
+      ordersByDay,
+      productPerformance
     };
   }, [state.orders, state.abandonedCheckouts, state.tenants, state.influencers, state.coupons]);
 
@@ -545,165 +624,48 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     syncAllTenants,
     syncAllOrders,
     syncYampi: async () => {
-      // Admin behavior: Sync ALL tenants with Yampi credentials
-      if (state.currentUser?.role === UserRole.CONEXX_ADMIN) {
-        setIsSyncing(true);
-        try {
-          const { data: tenants, error: tErr } = await supabase
-            .from('tenants')
-            .select('*')
-            .not('yampi_token', 'is', null);
-
-          if (tErr) throw tErr;
-
-          for (const t of (tenants || [])) {
-            const mappedTenant = mapTenantFromDB(t);
-            try {
-              const { orders, abandoned } = await YampiService.syncAllData(mappedTenant);
-
-              // Persist Orders (replace)
-              const dbOrders = orders.map(o => ({
-                tenant_id: mappedTenant.id,
-                external_id: o.externalId,
-                client_name: o.client,
-                client_email: o.email,
-                product_name: o.product,
-                order_date: o.date,
-                status: o.status,
-                payment_method: o.paymentMethod,
-                total_value: o.value,
-                coupon_code: o.couponCode
-              }));
-              await supabase.from('orders').delete().eq('tenant_id', mappedTenant.id);
-              if (dbOrders.length > 0) {
-                const { error: ordErr } = await supabase.from('orders').insert(dbOrders);
-                if (ordErr) throw ordErr;
-              }
-
-              // Persist Abandoned (replace)
-              const dbAbandoned = abandoned.map(a => ({
-                tenant_id: mappedTenant.id,
-                external_id: a.externalId,
-                client_name: a.clientName,
-                client_email: a.email,
-                client_phone: a.phone,
-                product_name: a.product,
-                value: a.value,
-                abandoned_at: a.date,
-                items: a.items,
-                recovered: a.recovered
-              }));
-              await supabase.from('abandoned_checkouts').delete().eq('tenant_id', mappedTenant.id);
-              if (dbAbandoned.length > 0) {
-                const { error: abErr } = await supabase.from('abandoned_checkouts').insert(dbAbandoned);
-                if (abErr) throw abErr;
-              }
-            } catch (err) {
-              console.error(`Failed to sync tenant ${mappedTenant.name}:`, err);
-            }
-          }
-
-          // Refresh state with consolidated data
-          await syncAllOrders();
-        } catch (e: any) {
-          console.error("Admin global sync failed:", e);
-          setSyncError(e.message || "Erro na sincronização global.");
-        } finally {
-          setIsSyncing(false);
-        }
-        return;
-      }
-
-      // Tenant behavior: sync a single tenant via Yampi
-      if (!state.activeTenant) return;
       setIsSyncing(true);
       try {
-        console.log(`[SyncYampi] Iniciando sincronização para Tenant: ${state.activeTenant.id} `);
-        const { orders, abandoned } = await YampiService.syncAllData(state.activeTenant);
+        const payload = state.currentUser?.role === UserRole.CONEXX_ADMIN
+          ? {} // Sync all for Admin
+          : { tenantId: state.activeTenant?.id }; // Sync specific for Tenant
 
-        // Persist Orders (replace)
-        const dbOrders = orders.map(o => ({
-          tenant_id: state.activeTenant?.id,
-          external_id: o.externalId,
-          client_name: o.client,
-          client_email: o.email,
-          product_name: o.product,
-          order_date: o.date,
-          status: o.status,
-          payment_method: o.paymentMethod,
-          total_value: o.value,
-          coupon_code: o.couponCode
-        }));
-        await supabase.from('orders').delete().eq('tenant_id', state.activeTenant.id);
-        const { error: ordErr } = await supabase.from('orders').insert(dbOrders);
-        if (ordErr) console.error("Error saving orders:", ordErr);
+        // Call backend to trigger sync
+        const res = await fetch('/api/admin/metricas/yampi/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
 
-        // Persist Abandoned (replace)
-        const dbAbandoned = abandoned.map(a => ({
-          tenant_id: state.activeTenant?.id,
-          external_id: a.externalId,
-          client_name: a.clientName,
-          email: a.email,
-          phone: a.phone,
-          value: a.value,
-          date: a.date,
-          items: a.items,
-          recovered: a.recovered
-        }));
-        await supabase.from('abandoned_checkouts').delete().eq('tenant_id', state.activeTenant.id);
-        const { error: abErr } = await supabase.from('abandoned_checkouts').insert(dbAbandoned);
-        if (abErr) console.error("Error saving checkouts:", abErr);
-
-        // Sync Products
-        const yampiProducts = await YampiService.syncProductsFromYampi(state.activeTenant);
-        if (yampiProducts.length > 0) {
-          const dbProducts = yampiProducts.map(p => ({
-            id: p.id, // Use ID from Yampi or generated
-            tenant_id: state.activeTenant?.id,
-            name: p.name,
-            sku: p.sku,
-            description: p.description,
-            price: p.price,
-            active: true, // Default active
-            yampi_product_id: typeof p.id === 'string' && !isNaN(Number(p.id)) ? Number(p.id) : null,
-            images: p.images || [] // syncProductsFromYampi needs to return images
-          }));
-
-          // Upsert products to avoid duplicates but update prices/names
-          const { error: prodErr } = await supabase.from('products').upsert(dbProducts);
-          if (prodErr) console.error("Error saving products:", prodErr);
-
-          // Fetch updated products to get consistent state
-          const { data: updatedProds } = await supabase.from('products').select('*').eq('tenant_id', state.activeTenant.id);
-          setState(prev => ({ ...prev, products: (updatedProds || []).map(mapProductFromDB) }));
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Falha na sincronização.');
         }
 
-        // Calculate and Update Total Revenue Cache for Tenant
-        const totalRevenue = orders
-          .filter(o => o.status === OrderStatus.APROVADO || (o.status as any) === 'paid' || (o.status as any) === 'approved')
-          .reduce((sum, o) => sum + (Number(o.value) || 0), 0);
+        // Refresh state
+        await syncAllOrders();
 
-        if (totalRevenue > 0) {
-          await supabase.from('tenants')
-            .update({ cached_gross_revenue: totalRevenue, last_sync: new Date().toISOString() })
-            .eq('id', state.activeTenant.id);
-        } else {
-          await supabase.from('tenants')
-            .update({ last_sync: new Date().toISOString() })
-            .eq('id', state.activeTenant.id);
+        if (state.currentUser?.role === UserRole.CONEXX_ADMIN) {
+          const { data: allTenants } = await supabase.from('tenants').select('*');
+          if (allTenants) {
+            setState(prev => ({ ...prev, tenants: allTenants.map(mapTenantFromDB) }));
+          }
+        } else if (state.activeTenant) {
+          const { data: updatedTenant } = await supabase.from('tenants').select('*').eq('id', state.activeTenant.id).single();
+          if (updatedTenant) {
+            setState(prev => ({
+              ...prev,
+              activeTenant: mapTenantFromDB(updatedTenant)
+            }));
+          }
         }
 
-        // Update local state for tenant view
-        setState(prev => ({
-          ...prev,
-          orders,
-          abandonedCheckouts: abandoned,
-          // Update active tenant stats in local state immediately
-          activeTenant: prev.activeTenant ? { ...prev.activeTenant, cachedGrossRevenue: totalRevenue } : null
-        }));
       } catch (err: any) {
+        console.error("Sync error:", err);
         setSyncError(err.message || "Erro de sincronização.");
-      } finally { setIsSyncing(false); }
+      } finally {
+        setIsSyncing(false);
+      }
     },
 
     saveTenant: async (data: Partial<Tenant>) => {
@@ -750,6 +712,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           billing_cycle: data.billingCycle,
           active: data.active !== undefined ? data.active : true,
           document: data.document,
+          meta_range: data.metaRange,
           company_percentage: data.companyPercentage || 0,
         };
 
@@ -883,7 +846,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ad_credit_quarterly: plan.adCreditQuarterly || 0,
           ad_credit_semiannual: plan.adCreditSemiannual || 0,
           ad_credit_yearly: plan.adCreditYearly || 0,
-          order_index: plan.orderIndex || 0
+          order_index: plan.orderIndex || 0,
+          discount_upfront_percent: plan.discountUpfrontPercent || 0
         };
 
         // If id is falsy, let the DB generate it
@@ -1057,40 +1021,236 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw error;
       }
     },
-    subscribeToPlan: async (planId: string, cycle: 'quarterly' | 'semiannual' | 'yearly') => {
+    syncAsaasData: async () => {
+      try {
+        const response = await fetch('/api/admin/assinaturas');
+        const resData = await response.json();
+
+        if (resData.data && Array.isArray(resData.data)) {
+          setState(prev => ({ ...prev, asaasSubscriptions: resData.data }));
+        }
+      } catch (e) {
+        console.error("Failed to sync Asaas data", e);
+      }
+    },
+    forceSyncAsaasData: async () => {
+      setIsSyncing(true);
+      try {
+        // 1. Trigger backend sync
+        await fetch('/api/asaas/sync-data', { method: 'POST' });
+
+        // 2. Refresh local data
+        const response = await fetch('/api/admin/assinaturas');
+        const resData = await response.json();
+
+        if (resData.data && Array.isArray(resData.data)) {
+          setState(prev => ({ ...prev, asaasSubscriptions: resData.data }));
+        }
+        toast.success("Dados sincronizados com sucesso!");
+      } catch (e: any) {
+        console.error("Failed to force sync Asaas data", e);
+        toast.error("Falha na sincronização.");
+      } finally {
+        setIsSyncing(false);
+      }
+    },
+    fetchAdminSubscriptions: async () => {
+      try {
+        const response = await fetch('/api/admin/assinaturas');
+        const data = await response.json();
+        if (data.data) {
+          setState(prev => ({ ...prev, asaasSubscriptions: data.data }));
+        }
+        return data;
+      } catch (e) {
+        console.error("fetchAdminSubscriptions error", e);
+        throw e;
+      }
+    },
+    fetchAdminClientDetails: async (clientId: string) => {
+      try {
+        const response = await fetch(`/api/admin/assinaturas/${clientId}`);
+        const data = await response.json();
+        return data;
+      } catch (e) {
+        console.error("fetchAdminClientDetails error", e);
+        throw e;
+      }
+    },
+    fetchWeeklyFees: async (tenantId: string) => {
+      try {
+        const response = await fetch(`/api/weekly-fees?tenantId=${tenantId}`);
+        const data = await response.json();
+        if (response.ok) {
+          setState(prev => ({ ...prev, weeklyFees: data }));
+        }
+      } catch (e) {
+        console.error("Failed to fetch weekly fees", e);
+      }
+    },
+    generateWeeklyCharge: async (id: string, paymentMethod: string) => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`/api/weekly-fees/${id}/gerar-cobranca`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paymentMethod })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Erro ao gerar cobrança.");
+        return data;
+      } catch (err: any) {
+        console.error(err);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    cancelWeeklyFee: async (id: string) => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`/api/weekly-fees/${id}/cancelar`, { method: 'POST' });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Erro ao cancelar.");
+        }
+      } catch (err: any) {
+        console.error(err);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    calculateWeeklyFees: async (startDate: string, endDate: string) => {
+      setIsLoading(true);
+      try {
+        const response = await fetch('/api/admin/weekly-fees/calculate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startDate, endDate })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Erro no cálculo.");
+        return data;
+      } catch (err: any) {
+        console.error(err);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    previewWeeklyFees: async (startDate: string, endDate: string) => {
+      // Don't set global loading state for specific previews to avoid unmounting components or aggressive re-renders
+      try {
+        const response = await fetch('/api/admin/weekly-fees/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startDate, endDate })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Erro ao gerar prévia.");
+        return data.data; // Returns array of preview items
+      } catch (err: any) {
+        console.error(err);
+        throw err;
+      }
+    },
+    subscribeToPlan: async (planId: string, cycle: 'quarterly' | 'semiannual' | 'yearly', type: 'monthly' | 'upfront' = 'upfront', paymentMethod: 'CREDIT_CARD' | 'BOLETO' | 'PIX' = 'CREDIT_CARD') => {
       setIsLoading(true);
       try {
         const userId = state.currentUser?.id;
         if (!userId) throw new Error("Usuário não identificado.");
 
-        // 1. Ensure Customer exists in Asaas
-        const { data: customerData, error: customerError } = await supabase.functions.invoke('create-customer', {
-          body: { user_id: userId }
+        const response = await fetch('/api/asaas/subscribe', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': userId
+          },
+          body: JSON.stringify({
+            planId,
+            billingCycle: cycle,
+            billingType: type,
+            paymentMethod, // sent as 'CREDIT_CARD', 'BOLETO', 'PIX'
+            userId
+          })
         });
 
-        if (customerError) {
-          throw new Error(customerError.message || "Falha ao registrar cliente no Asaas.");
+        const ct = response.headers.get('content-type') || '';
+        let data: any = null;
+        let textBody: string | null = null;
+        if (ct.includes('application/json')) {
+          data = await response.json();
+        } else {
+          textBody = await response.text();
         }
 
-        // 2. Create Subscription
-        const { data: subData, error: subError } = await supabase.functions.invoke('create-subscription', {
-          body: {
-            plan_id: planId,
-            billing_cycle: cycle,
-            user_id: userId
-          }
+        if (!response.ok) {
+          const errMsg = data?.message || data?.error || textBody || `Request failed with status ${response.status}`;
+          throw new Error(errMsg);
+        }
+
+        // Normalize return shape so callers can rely on checkoutUrl
+        const normalized: any = {
+          success: data.success,
+          checkoutUrl: data.checkoutUrl,
+          subscriptionId: data.subscriptionId,
+          raw: data
+        };
+
+        console.log('[Debug] DataContext subscribeToPlan normalized:', normalized);
+        return normalized;
+      } catch (err: any) {
+        console.error(err);
+        toast.error(err.message || 'Erro ao processar assinatura.');
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    generateCharge: async (requestId: string, paymentMethod: string) => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`/api/pagamentos/${requestId}/gerar-cobranca`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paymentMethod })
         });
-
-        if (subError) {
-          throw new Error(subError.message || "Falha ao criar assinatura.");
+        const ct = response.headers.get('content-type') || '';
+        let data: any = null;
+        let textBody: string | null = null;
+        if (ct.includes('application/json')) data = await response.json();
+        else textBody = await response.text();
+        if (!response.ok) {
+          const errMsg = data?.message || data?.error || textBody || `Request failed with status ${response.status}`;
+          throw new Error(errMsg);
         }
-
-        return subData.paymentUrl || subData.asaas_data?.invoiceUrl;
-
-      } catch (e: any) {
-        console.error("Subscription flow failed:", e);
-        setSyncError(e.message || "Erro ao processar assinatura.");
-        throw e;
+        return data || { success: true, data: null, message: 'ok' };
+      } catch (err: any) {
+        console.error(err);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    cancelPaymentRequest: async (requestId: string) => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`/api/pagamentos/${requestId}/cancelar`, {
+          method: 'POST'
+        });
+        if (!response.ok) {
+          const ct = response.headers.get('content-type') || '';
+          let data: any = null;
+          let textBody: string | null = null;
+          if (ct.includes('application/json')) data = await response.json();
+          else textBody = await response.text();
+          const errMsg = data?.message || data?.error || textBody || `Request failed with status ${response.status}`;
+          throw new Error(errMsg);
+        }
+      } catch (err: any) {
+        console.error(err);
+        throw err;
       } finally {
         setIsLoading(false);
       }
@@ -1127,6 +1287,46 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (error) throw error;
         setState(prev => ({ ...prev, categories: prev.categories.filter(c => c.id !== id) }));
       } catch (e) { console.error("deleteCategory error", e); }
+    },
+
+    // Payments
+    fetchMyPayments: async () => {
+      try {
+        const userId = state.currentUser?.id;
+        if (!userId) return;
+
+        // Fetch from new subscriptions table
+        const { data: subs, error: subErr } = await supabase
+          .from('subscriptions')
+          .select('*, plans(name)')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+
+        if (subErr) throw subErr;
+
+        // We can still support legacy payment_requests if needed, but let's prioritize subscriptions
+        if (subs) {
+          const mapped = subs.map(s => ({
+            id: s.id,
+            userId: s.user_id,
+            planId: s.plan_id,
+            planName: s.plans?.name || 'Plano',
+            cycle: s.billing_cycle,
+            billingType: s.billing_type,
+            status: s.status,
+            asaasSubscriptionId: s.asaas_subscription_id,
+            billingValue: Number(s.value || 0),
+            createdAt: s.created_at,
+            // Mocking some fields needed by UI
+            paymentMethod: s.billing_type === 'monthly' ? 'CREDIT_CARD' : 'BOLETO',
+            checkoutUrl: s.checkout_url,
+            asaasInvoiceUrl: s.checkout_url // Fallback/Alias
+          }));
+          setState(prev => ({ ...prev, paymentRequests: mapped }));
+        }
+      } catch (e) {
+        console.error("fetchMyPayments error", e);
+      }
     },
 
     // Goals

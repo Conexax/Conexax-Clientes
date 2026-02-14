@@ -21,7 +21,8 @@ const TenantManagement: React.FC = () => {
     yampiToken: '',
     yampiSecret: '',
     yampiProxyUrl: '',
-    document: ''
+    document: '',
+    metaRange: '0-10k'
   });
 
   React.useEffect(() => {
@@ -43,7 +44,7 @@ const TenantManagement: React.FC = () => {
       setFormData({
         name: '', ownerName: '', ownerEmail: '', password: '', planId: 'p_free',
         yampiAlias: '', yampiToken: '', yampiSecret: '', yampiProxyUrl: '',
-        document: ''
+        document: '', metaRange: '0-10k'
       });
     }
     setNewDomainUrl('');
@@ -144,7 +145,7 @@ const TenantManagement: React.FC = () => {
                   <td className="px-8 py-6 text-[10px] font-mono text-slate-500 font-bold">{t.document || '---.---.---/--'}</td>
                   <td className="px-8 py-6">
                     <div className="flex justify-center gap-3">
-                      <button onClick={() => { setEditingTenant(t); setShowModal(true); }} className="p-2.5 bg-white/5 text-slate-500 hover:text-white hover:bg-white/10 rounded-xl transition-all"><span className="material-symbols-outlined text-lg">edit</span></button>
+                      <button onClick={() => handleOpenModal(t)} className="p-2.5 bg-white/5 text-slate-500 hover:text-white hover:bg-white/10 rounded-xl transition-all"><span className="material-symbols-outlined text-lg">edit</span></button>
                       <button onClick={() => { if (confirm('Excluir lojista?')) actions.deleteTenant(t.id) }} className="p-2.5 bg-rose-500/5 text-rose-500/50 hover:text-rose-500 hover:bg-rose-500/15 rounded-xl transition-all"><span className="material-symbols-outlined text-lg">delete</span></button>
                     </div>
                   </td>
@@ -169,7 +170,7 @@ const TenantManagement: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => { setEditingTenant(t); setShowModal(true); }} className="w-10 h-10 flex items-center justify-center bg-white/5 text-slate-400 rounded-xl">
+                  <button onClick={() => handleOpenModal(t)} className="w-10 h-10 flex items-center justify-center bg-white/5 text-slate-400 rounded-xl">
                     <span className="material-symbols-outlined text-lg">edit</span>
                   </button>
                   <button onClick={() => { if (confirm('Excluir lojista?')) actions.deleteTenant(t.id) }} className="w-10 h-10 flex items-center justify-center bg-rose-500/10 text-rose-500 rounded-xl">
@@ -225,7 +226,7 @@ const TenantManagement: React.FC = () => {
                   {localError}
                 </div>
               )}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
                 <div className="space-y-6">
                   <h4 className="text-[10px] font-black text-primary uppercase tracking-widest border-l-2 border-primary pl-2">Dados da Conta</h4>
                   <div className="space-y-2">
@@ -251,6 +252,7 @@ const TenantManagement: React.FC = () => {
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-slate-500 uppercase">Atribuir Plano Comercial</label>
                     <select className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary" value={formData.planId} onChange={e => setFormData({ ...formData, planId: e.target.value })}>
+                      <option value="p_free">Plano Free (R$ 0,00)</option>
                       {state.plans.map(p => (
                         <option key={p.id} value={p.id}>{p.name} (R$ {p.priceQuarterly})</option>
                       ))}
@@ -270,6 +272,7 @@ const TenantManagement: React.FC = () => {
                     />
                     <p className="text-[9px] text-slate-500">Percentual sobre o faturamento bruto para cálculo de lucro.</p>
                   </div>
+                  {/* Meta Range removed as it is now auto-calculated */}
                 </div>
 
                 <div className="space-y-6 bg-white/5 p-6 rounded-2xl border border-white/5">
@@ -381,10 +384,10 @@ const TenantManagement: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          </div >
+        </div >
       )}
-    </div>
+    </div >
   );
 };
 

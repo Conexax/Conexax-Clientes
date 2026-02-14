@@ -1,6 +1,12 @@
 
 import React from 'react';
 import { HashRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+// This tool call seems to be for `multi_replace_file_content` based on logic, but I selected `replace_file_content` in thought.
+// I will use `replace_file_content` for the import first.
+// This tool call seems to be for `multi_replace_file_content` based on logic, but I selected `replace_file_content` in thought.
+// I will use `replace_file_content` for the import first.
+import MobileNavigation from './components/MobileNavigation';
+import IOSInstallPrompt from './components/IOSInstallPrompt';
 import { DataProvider, useData } from './context/DataContext';
 import { UserRole } from './types';
 import Dashboard from './pages/Dashboard';
@@ -17,14 +23,30 @@ import UserManagement from './pages/UserManagement';
 import Automations from './pages/Automations';
 import BillingPlans from './pages/BillingPlans';
 import PlanManagement from './pages/PlanManagement';
-import Login from './pages/Login'; // Import Login
+import Login from './pages/Login';
+import AdminGoals from './pages/AdminGoals';
+
 import YampiOAuthCallback from './pages/YampiOAuthCallback';
 import Products from './pages/Products';
 
 import Importer from './pages/Importer';
 import Coupons from './pages/Coupons';
 import AdminStatement from './pages/AdminStatement';
+import AdminWeeklyFees from './pages/AdminWeeklyFees';
 import AsaasConfig from './pages/AsaasConfig';
+import UpgradeSuccess from './pages/UpgradeSuccess';
+import UpgradeError from './pages/UpgradeError';
+import Subscriptions from './pages/Subscriptions';
+import SubscriptionDetails from './pages/SubscriptionDetails';
+
+import ConfirmPayment from './pages/ConfirmPayment';
+import WeeklyFees from './pages/WeeklyFees';
+import AdminMetrics from './pages/AdminMetrics';
+import TenantMetricsDetails from './pages/TenantMetricsDetails';
+import { NotificationProvider } from './context/NotificationContext';
+import ToastContainer from './components/ToastContainer';
+import NotificationCenter from './components/NotificationCenter';
+
 
 const SidebarItem: React.FC<{
   to: string;
@@ -104,13 +126,11 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
       />
 
       <aside className={`fixed left-0 top-0 h-screen w-64 glass-panel border-r border-neutral-border flex flex-col z-[60] overflow-y-auto scrollbar-thin transition-transform duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-8">
-          <div className="flex items-center justify-between mb-12">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-                <span className="text-neutral-950 font-black text-2xl leading-none italic">C</span>
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight text-white italic">Conexx</h1>
+        <div className="p-8 pb-4">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center justify-start gap-4 mb-8">
+              <img src="/logo-conexx.png" alt="Conexx" className="h-10 w-auto object-contain" />
+              <h1 className="text-2xl font-bold tracking-tight text-white italic">ConexaX</h1>
             </div>
             <button onClick={onClose} className="lg:hidden text-slate-400 hover:text-white">
               <span className="material-symbols-outlined">close</span>
@@ -124,14 +144,16 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
 
                 <SidebarGroup label="Gestão Corp" icon="corporate_fare" isOpen={openGroup === 'admin_mgmt'} onToggle={() => toggleGroup('admin_mgmt')}>
                   <SidebarItem to="/tenants" icon="storefront" label="Lojistas" active={currentPath === 'tenants'} onClick={onClose} />
+                  <SidebarItem to="/admin/goals" icon="flag" label="Metas" active={currentPath === 'admin/goals'} onClick={onClose} />
                   <SidebarItem to="/plan-management" icon="receipt_long" label="Planos" active={currentPath === 'plan-management'} onClick={onClose} />
                   <SidebarItem to="/users" icon="manage_accounts" label="Admins" active={currentPath === 'users'} onClick={onClose} />
                   <SidebarItem to="/admin/asaas" icon="api" label="Configuração Asaas" active={currentPath === 'admin/asaas'} onClick={onClose} />
                 </SidebarGroup>
 
                 <SidebarGroup label="Financeiro" icon="account_balance" isOpen={openGroup === 'admin_fin'} onToggle={() => toggleGroup('admin_fin')}>
-                  <SidebarItem to="/admin/statement" icon="receipt_long" label="Extrato" active={currentPath === 'admin/statement'} onClick={onClose} />
-                  <SidebarItem to="/performance" icon="analytics" label="Performance" active={currentPath === 'performance'} onClick={onClose} />
+                  <SidebarItem to="/admin/metrics" icon="monitoring" label="Métricas" active={currentPath === 'admin/metrics'} onClick={onClose} />
+                  <SidebarItem to="/assinaturas" icon="card_membership" label="Assinaturas" active={currentPath === 'assinaturas'} onClick={onClose} />
+                  <SidebarItem to="/admin/fees" icon="payments" label="Taxas Semanais" active={currentPath === 'admin/fees'} onClick={onClose} />
                 </SidebarGroup>
               </>
             ) : (
@@ -152,8 +174,8 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
 
                 <SidebarGroup label="Financeiro & Web" icon="language" isOpen={openGroup === 'financial'} onToggle={() => toggleGroup('financial')}>
                   <SidebarItem to="/plans" icon="credit_card" label="Planos & Cobrança" active={currentPath === 'plans'} onClick={onClose} />
+                  <SidebarItem to="/pagamentos-semanais" icon="payments" label="Taxas Semanais" active={currentPath === 'pagamentos-semanais'} onClick={onClose} />
                   <SidebarItem to="/domains" icon="language" label="Domínios & Web" active={currentPath === 'domains'} onClick={onClose} />
-                  <SidebarItem to="/billing" icon="settings_input_component" label="Conexão Yampi" active={currentPath === 'billing'} onClick={onClose} />
                 </SidebarGroup>
               </>
             )}
@@ -169,6 +191,7 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
             <span className="material-symbols-outlined text-sm">logout</span> Sair
           </button>
           <div className="flex items-center gap-4 mt-4">
+            <NotificationCenter />
             <div className="w-10 h-10 rounded-full bg-slate-800 border border-neutral-border flex items-center justify-center font-black text-xs text-primary">
               {state.currentUser?.name.substring(0, 1)}
             </div>
@@ -212,23 +235,25 @@ const MainLayout = () => {
     <div className="flex flex-col lg:flex-row">
       {/* Mobile Top Header */}
       <header className="lg:hidden h-16 bg-neutral-900/50 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6 sticky top-0 z-[50]">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-neutral-950 font-black text-lg italic">C</span>
-          </div>
-          <span className="text-lg font-bold text-white italic">Conexx</span>
+        <div className="flex items-center gap-3">
+          <img src="/logo-conexx.png" alt="Conexx" className="h-8 w-auto object-contain" />
+          <span className="text-lg font-bold text-white italic">ConexaX</span>
         </div>
-        <button
-          onClick={() => setIsSidebarOpen(true)}
-          className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white"
-        >
-          <span className="material-symbols-outlined">menu</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <NotificationCenter />
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white"
+          >
+            <span className="material-symbols-outlined">menu</span>
+          </button>
+        </div>
       </header>
 
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
-      <main className="lg:ml-64 flex-1 p-6 lg:p-10 min-h-screen">
+      {/* Main Content with bottom padding for mobile nav */}
+      <main className="lg:ml-64 flex-1 p-6 lg:p-10 min-h-screen pb-24 lg:pb-10">
         <div className="max-w-screen-2xl mx-auto">
           <Routes>
             <Route path="/" element={isAdmin ? <AdminDashboard /> : <Dashboard />} />
@@ -243,6 +268,7 @@ const MainLayout = () => {
             <Route path="/billing" element={<Billing />} />
             <Route path="/yampi-callback" element={<YampiOAuthCallback />} />
             <Route path="/products" element={<Products />} />
+            <Route path="/admin/goals" element={<AdminGoals />} />
 
             <Route path="/admin/import" element={<Importer />} />
             <Route path="/coupons" element={<Coupons />} />
@@ -251,26 +277,47 @@ const MainLayout = () => {
             <Route path="/plans" element={<BillingPlans />} />
             <Route path="/plan-management" element={<PlanManagement />} />
             <Route path="/admin/asaas" element={<AsaasConfig />} />
+            <Route path="/assinaturas" element={<Subscriptions />} />
+            <Route path="/assinaturas/:id" element={<SubscriptionDetails />} />
+            <Route path="/assinatura/sucesso" element={<UpgradeSuccess />} />
+            <Route path="/assinatura/erro" element={<UpgradeError />} />
+            <Route path="/pagamento/confirmar" element={<ConfirmPayment />} />
+            <Route path="/admin/fees" element={<AdminWeeklyFees />} />
+            <Route path="/pagamentos-semanais" element={<WeeklyFees />} />
+            <Route path="/admin/metrics" element={<AdminMetrics />} />
+            <Route path="/admin/metrics/:id" element={<TenantMetricsDetails />} />
           </Routes>
         </div>
       </main>
+
+      <MobileNavigation />
+      <IOSInstallPrompt />
     </div>
   );
 };
 
+import { registerServiceWorker } from './utils/push';
+
 const App: React.FC = () => {
+  React.useEffect(() => {
+    registerServiceWorker();
+  }, []);
+
   return (
     <DataProvider>
-      <HashRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/*" element={
-            <ProtectedRoute>
-              <MainLayout />
-            </ProtectedRoute>
-          } />
-        </Routes>
-      </HashRouter>
+      <NotificationProvider>
+        <ToastContainer />
+        <HashRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/*" element={
+              <ProtectedRoute>
+                <MainLayout />
+              </ProtectedRoute>
+            } />
+          </Routes>
+        </HashRouter>
+      </NotificationProvider>
     </DataProvider>
   );
 };

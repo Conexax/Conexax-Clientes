@@ -5,10 +5,11 @@ import { Goal } from '../types';
 interface CompactGoalWidgetProps {
     currentRevenue: number;
     goals: Goal[];
+    metaRange?: string;
     isLoading?: boolean;
 }
 
-const CompactGoalWidget: React.FC<CompactGoalWidgetProps> = ({ currentRevenue, goals, isLoading }) => {
+const CompactGoalWidget: React.FC<CompactGoalWidgetProps> = ({ currentRevenue, goals, metaRange, isLoading }) => {
     if (isLoading) {
         return (
             <div className="h-10 w-48 bg-white/5 rounded-xl animate-pulse flex items-center px-4">
@@ -19,12 +20,21 @@ const CompactGoalWidget: React.FC<CompactGoalWidgetProps> = ({ currentRevenue, g
 
     // Find the next unachieved goal or the last one if all achieved
     const sortedGoals = [...goals].sort((a, b) => a.targetValue - b.targetValue);
-    const nextGoal = sortedGoals.find(g => currentRevenue < g.targetValue) || sortedGoals[sortedGoals.length - 1];
+    let nextGoal = sortedGoals.find(g => currentRevenue < g.targetValue) || sortedGoals[sortedGoals.length - 1];
 
-    if (!nextGoal) return null;
+    let targetValue = nextGoal?.targetValue || 0;
 
-    const progress = Math.min((currentRevenue / nextGoal.targetValue) * 100, 100);
-    const achieved = currentRevenue >= nextGoal.targetValue;
+    // Fallback to metaRange if no goals or if metaRange defines a different logic
+    if (!nextGoal && metaRange) {
+        if (metaRange === '0-10k') targetValue = 10000;
+        else if (metaRange === '10k-100k') targetValue = 100000;
+        else if (metaRange === '100k-1M') targetValue = 1000000;
+    }
+
+    if (targetValue === 0) return null;
+
+    const progress = Math.min((currentRevenue / targetValue) * 100, 100);
+    const achieved = currentRevenue >= targetValue;
 
     // Format: "R$ 0k / R$ 10K"
     // Using compact notation for K/M
@@ -38,7 +48,7 @@ const CompactGoalWidget: React.FC<CompactGoalWidgetProps> = ({ currentRevenue, g
         <div className="flex flex-col items-end gap-1 min-w-[200px]">
             <div className="flex items-center gap-2 text-xs font-black text-white/90">
                 <span className="material-symbols-outlined text-emerald-400 text-sm">diamond</span>
-                <span>{formatCompact(currentRevenue)} <span className="text-slate-500 mx-1">/</span> {formatCompact(nextGoal.targetValue)}</span>
+                <span>{formatCompact(currentRevenue)} <span className="text-slate-500 mx-1">/</span> {formatCompact(targetValue)}</span>
             </div>
 
             <div className="w-full h-2 bg-neutral-800 rounded-full overflow-hidden border border-white/5 relative">
