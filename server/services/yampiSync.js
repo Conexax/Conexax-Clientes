@@ -82,22 +82,38 @@ export const YampiSyncService = {
      */
     async syncOrders(tenant) {
         const alias = tenant.yampi_alias || tenant.yampiAlias;
+        // Legacy credentials
         const token = tenant.yampi_token || tenant.yampiToken;
         const secret = tenant.yampi_secret || tenant.yampiSecret;
+        // OAuth credentials
+        const oauthToken = tenant.yampi_oauth_access_token || tenant.yampiOauthAccessToken;
 
-        if (!alias || !token) {
-            throw new Error(`Tenant ${tenant.id} missing Yampi credentials.`);
+        if (!alias) {
+            throw new Error(`Tenant ${tenant.id} missing Yampi Alias.`);
+        }
+
+        // Ensure we have at least one method of authentication
+        if (!oauthToken && (!token || !secret)) {
+            throw new Error(`Tenant ${tenant.id} missing Yampi credentials (Token+Secret or OAuth).`);
         }
 
         console.log(`[YampiSync] Starting paginated sync for ${tenant.name} (${alias})...`);
 
         const apiBase = `https://api.dooki.com.br/v2/${alias}`;
+
         const headers = {
-            'User-Token': token,
-            'User-Secret-Key': secret,
             'Alias': alias,
             'Content-Type': 'application/json'
         };
+
+        if (oauthToken) {
+            headers['Authorization'] = `Bearer ${oauthToken}`;
+            console.log(`[YampiSync] Using OAuth Token for ${alias}`);
+        } else {
+            headers['User-Token'] = token;
+            headers['User-Secret-Key'] = secret;
+            console.log(`[YampiSync] Using Legacy Token/Secret for ${alias}`);
+        }
 
         let page = 1;
         let hasMore = true;

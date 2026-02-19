@@ -43,6 +43,7 @@ import ConfirmPayment from './pages/ConfirmPayment';
 import WeeklyFees from './pages/WeeklyFees';
 import AdminMetrics from './pages/AdminMetrics';
 import TenantMetricsDetails from './pages/TenantMetricsDetails';
+import TenantDetails from './pages/TenantDetails';
 import { NotificationProvider } from './context/NotificationContext';
 import ToastContainer from './components/ToastContainer';
 import NotificationCenter from './components/NotificationCenter';
@@ -286,6 +287,7 @@ const MainLayout = () => {
             <Route path="/pagamentos-semanais" element={<WeeklyFees />} />
             <Route path="/admin/metrics" element={<AdminMetrics />} />
             <Route path="/admin/metrics/:id" element={<TenantMetricsDetails />} />
+            <Route path="/tenants/:id" element={<TenantDetails />} />
           </Routes>
         </div>
       </main>

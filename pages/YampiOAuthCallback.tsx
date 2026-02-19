@@ -29,50 +29,29 @@ const YampiOAuthCallback: React.FC = () => {
           return;
         }
 
-        const tokenUrl = import.meta.env.VITE_YAMPI_TOKEN_URL;
         const clientId = import.meta.env.VITE_YAMPI_CLIENT_ID;
         const redirectUri = `${window.location.origin}/#/yampi-callback`;
 
-        const body = new URLSearchParams({
-          grant_type: 'authorization_code',
-          client_id: String(clientId),
-          code: String(code),
-          redirect_uri: redirectUri,
-          code_verifier: String(code_verifier)
-        });
-
-        const res = await fetch(tokenUrl, {
+        // Call our server endpoint to handle exchange + DB save
+        const res = await fetch('/api/yampi/auth/exchange', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: body.toString()
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code,
+            clientId,
+            redirectUri,
+            codeVerifier: code_verifier,
+            tenantId
+          })
         });
 
         if (!res.ok) {
-          const txt = await res.text();
-          setError(`Token exchange falhou: ${res.status} ${txt}`);
-          return;
+          const errData = await res.json();
+          throw new Error(errData.error || errData.details || `Erro do servidor: ${res.status}`);
         }
 
-        const tokenJson = await res.json();
-        // tokenJson: access_token, refresh_token, expires_in, scope, token_type
-
-        // Save tokens on Supabase tenants table
-        const expiresAt = tokenJson.expires_in ? new Date(Date.now() + tokenJson.expires_in * 1000).toISOString() : null;
-
-        const { error: upErr } = await supabase
-          .from('tenants')
-          .update({
-            yampi_oauth_access_token: tokenJson.access_token,
-            yampi_oauth_refresh_token: tokenJson.refresh_token,
-            yampi_oauth_token_expires_at: expiresAt,
-            yampi_oauth_scope: tokenJson.scope || null
-          })
-          .eq('id', tenantId);
-
-        if (upErr) {
-          setError(`Falha ao salvar tokens no banco: ${upErr.message}`);
-          return;
-        }
+        const data = await res.json();
+        // data: { success: true, alias: ... }
 
         // cleanup
         sessionStorage.removeItem('yampi_code_verifier');
@@ -81,6 +60,7 @@ const YampiOAuthCallback: React.FC = () => {
         // Redirect to billing page
         navigate('/billing');
       } catch (e: any) {
+        console.error("OAuth Callback Error:", e);
         setError(e.message || 'Erro desconhecido durante OAuth.');
       }
     })();

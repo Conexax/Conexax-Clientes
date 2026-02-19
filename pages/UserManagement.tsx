@@ -18,16 +18,19 @@ const UserManagement: React.FC = () => {
   });
 
   const users = isAdmin
-    ? state.users
+    ? state.users.filter(u => u.role === UserRole.CONEXX_ADMIN)
     : state.users.filter(u => u.tenantId === state.activeTenant?.id);
 
   const handleOpenModal = () => {
+    // Default role based on who is creating
+    const defaultRole = isAdmin ? UserRole.CONEXX_ADMIN : UserRole.CLIENT_USER;
+
     setFormData({
       name: '',
       email: '',
       password: '',
-      role: isAdmin ? UserRole.CONEXX_ADMIN : UserRole.CLIENT_USER,
-      tenantId: isAdmin ? 'CONEXX' : state.activeTenant?.id
+      role: defaultRole,
+      tenantId: isAdmin ? (null as any) : state.activeTenant?.id // Send null for global admins (no tenant)
     });
     setShowModal(true);
   };
@@ -158,7 +161,7 @@ const UserManagement: React.FC = () => {
           <div className="glass-panel w-full max-w-md rounded-3xl shadow-2xl border-primary/20 p-8">
             <div className="flex justify-between items-center mb-8 border-b border-white/5 pb-4">
               <h3 className="text-2xl font-black text-white italic">
-                {isAdmin ? 'Cadastrar Admin Global' : 'Adicionar Equipe'}
+                {isAdmin ? 'Cadastrar Admin Global' : 'Adicionar Membro'}
               </h3>
               <button onClick={() => setShowModal(false)} className="text-slate-500 hover:text-white transition-all">
                 <span className="material-symbols-outlined">close</span>
@@ -182,6 +185,26 @@ const UserManagement: React.FC = () => {
                   value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })}
                 />
               </div>
+
+              {/* Role Selection */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Cargo / Permissão</label>
+                <select
+                  value={formData.role}
+                  onChange={e => setFormData({ ...formData, role: e.target.value as UserRole })}
+                  className="w-full bg-panel-dark border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary appearance-none cursor-pointer"
+                >
+                  {isAdmin ? (
+                    <option value={UserRole.CONEXX_ADMIN}>Administrador Global (CONEXX)</option>
+                  ) : (
+                    <>
+                      <option value={UserRole.CLIENT_USER}>Membro da Equipe (Acesso Padrão)</option>
+                      <option value={UserRole.CLIENT_ADMIN}>Administrador da Loja (Acesso Total)</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Senha Provisória</label>
                 <input
@@ -191,13 +214,13 @@ const UserManagement: React.FC = () => {
                 />
               </div>
 
-              {!isAdmin && (
-                <div className="p-4 bg-primary/5 border border-primary/10 rounded-xl">
-                  <p className="text-[10px] text-slate-400 leading-relaxed italic">
-                    Este usuário terá acesso aos dados de vendas e carrinhos desta loja, mas não poderá alterar configurações de integração.
-                  </p>
-                </div>
-              )}
+              <div className="p-4 bg-primary/5 border border-primary/10 rounded-xl">
+                <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                  {formData.role === UserRole.CONEXX_ADMIN && "Acesso total a todos os lojistas e configurações da plataforma."}
+                  {formData.role === UserRole.CLIENT_ADMIN && "Acesso total às configurações, integrações e usuários desta loja."}
+                  {formData.role === UserRole.CLIENT_USER && "Acesso apenas para visualizar pedidos e produtos, sem permissão de configurações."}
+                </p>
+              </div>
 
               <button
                 type="submit"

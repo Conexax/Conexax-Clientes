@@ -27,8 +27,20 @@ const DateRangeFilter: React.FC<DateRangeFilterProps> = ({ onFilterChange }) => 
             end = new Date(now);
             end.setHours(23, 59, 59, 999);
         } else if (filter === 'week') {
+            // "Últimos 7 dias"
             const d = new Date(now);
             d.setDate(d.getDate() - 7);
+            d.setHours(0, 0, 0, 0);
+            start = d;
+            end = new Date(now);
+            end.setHours(23, 59, 59, 999);
+        } else if (filter === 'this_week') {
+            // "Esta Semana" (Monday start)
+            const d = new Date(now);
+            const day = d.getDay(); // 0 (Sun) - 6 (Sat)
+            // If Sunday (0), go back 6 days. If Monday (1), go back 0.
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+            d.setDate(diff);
             d.setHours(0, 0, 0, 0);
             start = d;
             end = new Date(now);
@@ -76,6 +88,7 @@ const DateRangeFilter: React.FC<DateRangeFilterProps> = ({ onFilterChange }) => 
                 >
                     <option value="today" className="bg-neutral-900 text-slate-300">Hoje</option>
                     <option value="week" className="bg-neutral-900 text-slate-300">Últimos 7 dias</option>
+                    <option value="this_week" className="bg-neutral-900 text-slate-300">Esta Semana</option>
                     <option value="month" className="bg-neutral-900 text-slate-300">Este Mês</option>
                     <option value="total" className="bg-neutral-900 text-slate-300">Total (Geral)</option>
                     <option value="custom" className="bg-neutral-900 text-slate-300">Personalizado</option>

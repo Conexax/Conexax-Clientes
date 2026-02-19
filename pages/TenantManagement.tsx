@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { Tenant, Domain } from '../types';
 
@@ -128,7 +129,9 @@ const TenantManagement: React.FC = () => {
                         {t.name.substring(0, 2)}
                       </div>
                       <div>
-                        <span className="block text-sm font-bold text-white group-hover:text-primary transition-colors">{t.name}</span>
+                        <Link to={`/tenants/${t.id}`} className="block text-sm font-bold text-white group-hover:text-primary transition-colors hover:underline">
+                          {t.name}
+                        </Link>
                         <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{t.id}</span>
                       </div>
                     </div>
@@ -136,15 +139,23 @@ const TenantManagement: React.FC = () => {
                   <td className="px-8 py-6 text-sm text-slate-400 italic">{t.ownerEmail}</td>
                   <td className="px-8 py-6">
                     <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${t.yampiToken ? 'bg-primary shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]'}`} />
-                      <span className={`text-[10px] font-black uppercase tracking-tighter ${t.yampiToken ? 'text-primary' : 'text-rose-500'}`}>
-                        {t.yampiToken ? 'INTEGRADO YAMPI' : 'AGUARDANDO SYNC'}
+                      <div className={`w-2 h-2 rounded-full ${t.yampiOauthAccessToken ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : t.yampiToken ? 'bg-primary shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]'}`} />
+                      <span className={`text-[10px] font-black uppercase tracking-tighter ${t.yampiOauthAccessToken ? 'text-emerald-500' : t.yampiToken ? 'text-primary' : 'text-rose-500'}`}>
+                        {t.yampiOauthAccessToken ? 'OAUTH CONECTADO' : t.yampiToken ? 'TOKEN LEGADO' : 'AGUARDANDO SYNC'}
                       </span>
                     </div>
                   </td>
                   <td className="px-8 py-6 text-[10px] font-mono text-slate-500 font-bold">{t.document || '---.---.---/--'}</td>
                   <td className="px-8 py-6">
                     <div className="flex justify-center gap-3">
+                      <button
+                        onClick={() => actions.syncYampi(t.id)}
+                        disabled={isSyncing}
+                        className="p-2.5 bg-blue-500/5 text-blue-500 hover:text-white hover:bg-blue-500/20 rounded-xl transition-all disabled:opacity-50"
+                        title="Sincronizar Yampi Agora"
+                      >
+                        <span className={`material-symbols-outlined text-lg ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
+                      </button>
                       <button onClick={() => handleOpenModal(t)} className="p-2.5 bg-white/5 text-slate-500 hover:text-white hover:bg-white/10 rounded-xl transition-all"><span className="material-symbols-outlined text-lg">edit</span></button>
                       <button onClick={() => { if (confirm('Excluir lojista?')) actions.deleteTenant(t.id) }} className="p-2.5 bg-rose-500/5 text-rose-500/50 hover:text-rose-500 hover:bg-rose-500/15 rounded-xl transition-all"><span className="material-symbols-outlined text-lg">delete</span></button>
                     </div>
@@ -170,6 +181,13 @@ const TenantManagement: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => actions.syncYampi(t.id)}
+                    disabled={isSyncing}
+                    className="w-10 h-10 flex items-center justify-center bg-blue-500/10 text-blue-500 rounded-xl disabled:opacity-50"
+                  >
+                    <span className={`material-symbols-outlined text-lg ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
+                  </button>
                   <button onClick={() => handleOpenModal(t)} className="w-10 h-10 flex items-center justify-center bg-white/5 text-slate-400 rounded-xl">
                     <span className="material-symbols-outlined text-lg">edit</span>
                   </button>
@@ -313,6 +331,10 @@ const TenantManagement: React.FC = () => {
                     <input type="password" className="w-full bg-black/20 border-neutral-border rounded-xl px-4 py-3 text-xs text-slate-300 font-mono" value={formData.yampiSecret} onChange={e => setFormData({ ...formData, yampiSecret: e.target.value })} />
                   </div>
                   <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">URL do Proxy (Opcional)</label>
+                    <input type="text" className="w-full bg-black/20 border-neutral-border rounded-xl px-4 py-3 text-xs text-slate-300 font-mono" value={formData.yampiProxyUrl || ''} onChange={e => setFormData({ ...formData, yampiProxyUrl: e.target.value })} placeholder="https://..." />
+                  </div>
+                  <div className="space-y-2">
                     <label className="text-[10px] font-bold text-slate-500 uppercase">Conectar via Yampi Parceiros (OAuth)</label>
                     <div className="flex gap-2">
                       <button
@@ -369,6 +391,16 @@ const TenantManagement: React.FC = () => {
                       </button>
                     </div>
                     <p className="text-[10px] text-slate-500 italic">Use este fluxo para conectar sua conta via Yampi Parceiros (OAuth PKCE). Configure <code className="bg-black/20 px-1">VITE_YAMPI_CLIENT_ID</code> e <code className="bg-black/20 px-1">VITE_YAMPI_AUTHORIZE_URL</code> no seu .env.local.</p>
+
+                    {formData.yampiOauthAccessToken && (
+                      <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3">
+                        <span className="material-symbols-outlined text-emerald-500">check_circle</span>
+                        <div>
+                          <p className="text-xs font-bold text-emerald-500 uppercase">Conectado via OAuth</p>
+                          <p className="text-[10px] text-slate-400">Token expira em: {formData.yampiOauthExpiresAt ? new Date(formData.yampiOauthExpiresAt).toLocaleString() : 'N/A'}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

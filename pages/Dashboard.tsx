@@ -24,7 +24,8 @@ const Dashboard: React.FC = () => {
 
   // Goals & Date Filter Logic
   const [dateRange, setDateRange] = useState({
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
+    // Default to a wide range (e.g. from 2024 to now) to ensure user sees something initially
+    startDate: new Date('2024-01-01').toISOString(),
     endDate: new Date().toISOString()
   });
   const [goalsData, setGoalsData] = useState<any>(null);
@@ -78,7 +79,11 @@ const Dashboard: React.FC = () => {
       setLoadingGoals(false);
     };
     loadGoals();
-  }, [isSyncing]); // Dep on isSyncing to refresh after sync, but NOT on dateRange
+
+    // Ensure we have the latest orders
+    console.log("Dashboard mounted. Orders in state:", state.orders.length);
+    actions.syncAllOrders().then(() => console.log("Refreshed orders on dashboard mount."));
+  }, [isSyncing, actions]); // Dep on isSyncing to refresh after sync
 
 
   /* 
@@ -162,16 +167,19 @@ const Dashboard: React.FC = () => {
           <div className="hidden lg:block border-r border-white/10 pr-6 mr-2">
             <GoalProgressBar currentRevenue={state.activeTenant?.cachedGrossRevenue || 0} />
           </div>
-          <div className="w-full md:w-auto">
-            <DateRangeFilter onFilterChange={(start, end) => setDateRange({ startDate: start.toISOString(), endDate: end.toISOString() })} />
-          </div>
+
           <button
             onClick={() => actions.syncYampi()}
-            className={`w-full md:w-auto px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${isSyncing ? 'bg-neutral-800 text-slate-500' : 'bg-primary text-neutral-950 glow-hover'}`}
+            disabled={isSyncing}
+            className={`w-full md:w-auto px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${isSyncing ? 'bg-neutral-800 text-slate-500 cursor-not-allowed' : 'bg-primary text-neutral-950 glow-hover'}`}
           >
             <span className={`material-symbols-outlined ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
             {isSyncing ? 'Atualizando...' : 'Atualizar'}
           </button>
+
+          <div className="w-full md:w-auto">
+            <DateRangeFilter onFilterChange={(start, end) => setDateRange({ startDate: start.toISOString(), endDate: end.toISOString() })} />
+          </div>
         </div>
       </header >
 

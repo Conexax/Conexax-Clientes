@@ -82,6 +82,7 @@ export interface Tenant {
   // Admin Stats
   companyPercentage?: number;
   cachedGrossRevenue?: number;
+  logoUrl?: string;
 }
 
 export interface Domain {

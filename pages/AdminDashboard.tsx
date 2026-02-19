@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ResponsiveContainer, AreaChart, Area, Tooltip } from 'recharts';
 import { useData } from '../context/DataContext';
 
@@ -48,6 +48,9 @@ const AdminDashboard: React.FC = () => {
   }, [filterPeriod, state.tenants, yampiStats]);
 
   const totalProfit = useMemo(() => {
+    // Calculate precise commission based on each tenant's settings
+
+    // 1. All-time (Total)
     if (filterPeriod === 'total') {
       return state.tenants.reduce((acc, t) => {
         const pct = Number(t.companyPercentage) || 0;
@@ -55,9 +58,19 @@ const AdminDashboard: React.FC = () => {
       }, 0);
     }
 
-    // For specific period, we use the average commission across tenants or we could improve the backend to return this.
-    // For now, let's stick to a precise calculation if we had per-tenant revenue in the period.
-    return yampiStats?.grossRevenue ? (yampiStats.grossRevenue * 0.05) : 0; // Fallback or estimate
+    // 2. Filtered Period (Approximate using weighted average)
+    // We calculate the effective commission rate across all tenants based on their all-time performance
+    // and apply it to the period's gross revenue.
+    const allTimeRevenue = state.tenants.reduce((acc, t) => acc + (Number(t.cachedGrossRevenue) || 0), 0);
+    const allTimeCommission = state.tenants.reduce((acc, t) => {
+      const pct = Number(t.companyPercentage) || 0;
+      return acc + ((Number(t.cachedGrossRevenue) || 0) * (pct / 100));
+    }, 0);
+
+    const effectiveRate = allTimeRevenue > 0 ? (allTimeCommission / allTimeRevenue) : 0;
+
+    // Apply effective rate to the period revenue from Yampi stats
+    return (yampiStats?.grossRevenue || 0) * effectiveRate;
   }, [filterPeriod, state.tenants, yampiStats]);
 
   return (
@@ -69,6 +82,8 @@ const AdminDashboard: React.FC = () => {
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-4">
+
+
           <button
             onClick={() => actions.syncYampi()}
             disabled={isSyncing}

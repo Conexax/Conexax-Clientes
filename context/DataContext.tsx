@@ -14,7 +14,7 @@ interface DataContextType {
   actions: {
     login: (email: string, password: string) => Promise<boolean>;
     logout: () => void;
-    syncYampi: () => Promise<void>;
+    syncYampi: (targetTenantId?: string) => Promise<void>;
     updateSettings: (settings: AppSettings) => void;
     addOrder: (order: Partial<Order>) => void;
     updateOrder: (id: string, updates: Partial<Order>) => void;
@@ -52,6 +52,7 @@ interface DataContextType {
     generateWeeklyCharge: (id: string, paymentMethod: string) => Promise<any>;
     cancelWeeklyFee: (id: string) => Promise<void>;
     calculateWeeklyFees: (startDate: string, endDate: string) => Promise<any>;
+    markFeeAsPaid: (id: string, password: string) => Promise<any>;
     previewWeeklyFees: (startDate: string, endDate: string) => Promise<any>;
     clearSyncError: () => void;
     fetchMyPayments: () => Promise<void>;
@@ -86,7 +87,8 @@ const mapTenantFromDB = (dbTenant: any): Tenant => ({
   cachedGrossRevenue: Number(dbTenant.cached_gross_revenue || 0),
   pendingPlanId: dbTenant.pending_plan_id,
   pendingBillingCycle: dbTenant.pending_billing_cycle,
-  pendingPaymentUrl: dbTenant.pending_payment_url
+  pendingPaymentUrl: dbTenant.pending_payment_url,
+  logoUrl: dbTenant.logo_url
 });
 
 const mapUserFromDB = (dbUser: any): User => ({
@@ -536,7 +538,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Fetch Plans
         const { data: dbPlans } = await supabase.from('plans').select('*');
 
-        const opData = AuthService.getOperationalData(); // Mock data for now (orders, etc)
+        // Fetch Real Operational Data (Orders, Abandoned Carts)
+        let realOrders: Order[] = [];
+        let realAbandoned: AbandonedCheckout[] = [];
+
+        if (user.role === UserRole.CONEXX_ADMIN) {
+          // Admin sees all? Or maybe just empty initially and uses AdminMetrics page.
+          // For Dashboard.tsx to work for admin, we might need all orders, but that's heavy.
+          // Let's assume Admin Dashboard shows global stats.
+          const { data: ord } = await supabase.from('orders').select('*').order('order_date', { ascending: false }).limit(1000); // Limit for performance
+          realOrders = (ord || []).map(mapOrderFromDB);
+        } else if (user.tenant_id) {
+          const { data: ord } = await supabase.from('orders').select('*').eq('tenant_id', user.tenant_id).order('order_date', { ascending: false }).limit(2000);
+          realOrders = (ord || []).map(mapOrderFromDB);
+        }
 
         localStorage.setItem('conexx_user_id', user.id); // Persist login
 
@@ -546,7 +561,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           activeTenant: tenant ? mapTenantFromDB(tenant) : null,
           tenants: allTenants,
           users: allUsers,
-          ...opData,
+          orders: realOrders, // Use Real Data
+          abandonedCheckouts: realAbandoned, // Todo: fetch real abandoned carts if table exists
           plans: (dbPlans || []).map(mapPlanFromDB) // Ensure Supabase wins
         }));
 
@@ -622,13 +638,41 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearSyncError: () => setSyncError(null),
     syncAllPlans,
     syncAllTenants,
-    syncAllOrders,
-    syncYampi: async () => {
+    syncAllOrders: async () => {
+      // Re-fetch orders from Supabase to update state
+      const { currentUser } = state;
+      if (!currentUser) return;
+
+      try {
+        let fetchedOrders: any[] = [];
+        console.log(`[syncAllOrders] Syncing orders for user role: ${currentUser.role}, Tenant: ${currentUser.tenantId}`);
+
+        if (currentUser.role === UserRole.CONEXX_ADMIN) {
+          const { data } = await supabase.from('orders').select('*').order('order_date', { ascending: false }).limit(1000);
+          fetchedOrders = data || [];
+        } else if (currentUser.tenantId) {
+          const { data } = await supabase.from('orders').select('*').eq('tenant_id', currentUser.tenantId).order('order_date', { ascending: false });
+          fetchedOrders = data || [];
+        }
+
+        console.log(`[syncAllOrders] Fetched ${fetchedOrders.length} orders from Supabase.`);
+
+        setState(prev => ({
+          ...prev,
+          orders: fetchedOrders.map(mapOrderFromDB)
+        }));
+      } catch (e) {
+        console.error("Error syncing orders:", e);
+      }
+    },
+    syncYampi: async (targetTenantId?: string) => {
       setIsSyncing(true);
       try {
-        const payload = state.currentUser?.role === UserRole.CONEXX_ADMIN
-          ? {} // Sync all for Admin
-          : { tenantId: state.activeTenant?.id }; // Sync specific for Tenant
+        const payload = targetTenantId
+          ? { tenantId: targetTenantId }
+          : state.currentUser?.role === UserRole.CONEXX_ADMIN
+            ? {} // Sync all for Admin if no ID specified
+            : { tenantId: state.activeTenant?.id }; // Sync specific for Tenant user
 
         // Call backend to trigger sync
         const res = await fetch('/api/admin/metricas/yampi/sync', {
@@ -671,6 +715,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     saveTenant: async (data: Partial<Tenant>) => {
       setIsSyncing(true);
       try {
+        console.log("saveTenant called with:", data); // DEBUG LOG
         let tenantId = data.id;
 
         // Validations
@@ -714,47 +759,111 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           document: data.document,
           meta_range: data.metaRange,
           company_percentage: data.companyPercentage || 0,
+          logo_url: data.logoUrl
         };
 
         Object.keys(tenantPayload).forEach(key => tenantPayload[key] === undefined && delete tenantPayload[key]);
 
-        const { data: savedTenant, error: tenantError } = await supabase
-          .from('tenants')
-          .upsert(tenantPayload)
-          .select()
-          .single();
+        console.log("Tenant Payload to Supabase:", tenantPayload); // DEBUG LOG
 
-        if (tenantError) throw new Error(`Erro ao salvar loja: ${tenantError.message} `);
-        tenantId = savedTenant.id;
+        let savedTenant;
+        let tenantError;
 
-        // 3. Upsert Owner User
-        const userPayload: any = {
-          tenant_id: tenantId,
-          email: normalizedEmail,
-          name: data.ownerName,
-          role: UserRole.CLIENT_ADMIN,
-        };
+        if (tenantId) {
+          // 1. Try RPC V2 (Bypass RLS)
+          const { error: rpcError } = await supabase.rpc('admin_update_tenant_v2', {
+            _id: tenantId,
+            _name: tenantPayload.name,
+            _owner_email: tenantPayload.owner_email,
+            _yampi_alias: tenantPayload.yampi_alias || null,
+            _yampi_token: tenantPayload.yampi_token || null,
+            _yampi_secret: tenantPayload.yampi_secret || null,
+            _yampi_proxy_url: tenantPayload.yampi_proxy_url || null,
+            _company_percentage: tenantPayload.company_percentage || 0,
+            _logo_url: tenantPayload.logo_url || null,
+            _document: tenantPayload.document || null
+          });
 
-        if (data.password) {
-          userPayload.password = data.password;
+          if (rpcError) {
+            console.error("RPC V2 update failed:", rpcError);
+            // Fallback to V1 or standard if V2 missing
+            const { error: rpcErrorOld } = await supabase.rpc('admin_update_tenant', {
+              _id: tenantId,
+              _name: tenantPayload.name,
+              _owner_email: tenantPayload.owner_email,
+              _yampi_alias: tenantPayload.yampi_alias || null,
+              _yampi_token: tenantPayload.yampi_token || null,
+              _yampi_secret: tenantPayload.yampi_secret || null,
+              _yampi_proxy_url: tenantPayload.yampi_proxy_url || null,
+              _company_percentage: tenantPayload.company_percentage || 0,
+              _logo_url: tenantPayload.logo_url || null,
+              _document: tenantPayload.document || null
+            });
+
+            if (rpcErrorOld) {
+              // Final attempt: standard update
+              const { data, error } = await supabase
+                .from('tenants')
+                .update(tenantPayload)
+                .eq('id', tenantId)
+                .select()
+                .single();
+              savedTenant = data;
+              tenantError = error;
+            }
+          }
+
+          // Fetch updated to return valid object if savedTenant is null
+          const { data } = await supabase.from('tenants').select().eq('id', tenantId).single();
+          savedTenant = data;
+
+        } else {
+          // Insert new
+          const { data, error } = await supabase
+            .from('tenants')
+            .insert(tenantPayload)
+            .select()
+            .single();
+          savedTenant = data;
+          tenantError = error;
         }
 
-        if (existingUser) {
-          // Update existing user permissions/link
-          const { error: userError } = await supabase
-            .from('users')
-            .update(userPayload)
-            .eq('id', existingUser.id);
-          if (userError) throw new Error(`Erro ao atualizar usuário vinculada: ${userError.message} `);
-        } else {
-          // Create new user
-          const { error: userError } = await supabase
-            .from('users')
-            .insert({
-              ...userPayload,
-              password: data.password || '123456' // Default password if none provided
-            });
-          if (userError) throw new Error(`Erro ao criar usuário para a loja: ${userError.message} `);
+        if (tenantError) {
+          console.error("Supabase Error saving tenant:", tenantError); // DEBUG LOG
+          throw new Error(`Erro ao salvar loja: ${tenantError.message} `);
+        }
+        console.log("Supabase Success saved tenant:", savedTenant); // DEBUG LOG
+
+        tenantId = savedTenant.id;
+
+        // 3. Upsert Owner User via RPC to bypass RLS
+        const { error: userRpcError } = await supabase.rpc('admin_upsert_user_owner', {
+          _id: existingUser?.id || null, // If null, RPC handles creation
+          _email: normalizedEmail,
+          _tenant_id: tenantId,
+          _name: data.ownerName,
+          _password: data.password || null
+        });
+
+        if (userRpcError) {
+          console.error("User RPC failed, falling back to standard upsert:", userRpcError);
+          // Fallback to standard upsert logic if RPC fails
+          const userPayload: any = {
+            tenant_id: tenantId,
+            email: normalizedEmail,
+            name: data.ownerName,
+            role: UserRole.CLIENT_ADMIN,
+          };
+
+          if (data.password) userPayload.password = data.password;
+
+          if (existingUser) {
+            const { error: userError } = await supabase.from('users').update(userPayload).eq('id', existingUser.id);
+            if (userError) throw new Error(`Erro ao atualizar usuário vinculada: ${userError.message}`);
+          } else {
+            const { error: userError } = await supabase.from('users').insert({ ...userPayload, password: data.password || '123456' });
+            if (userError) throw new Error(`Erro ao criar usuário: ${userError.message}`);
+          }
         }
 
         // 4. Refresh List
@@ -1106,6 +1215,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(false);
       }
     },
+    markFeeAsPaid: async (id: string, password: string) => {
+      setIsLoading(true);
+      try {
+        if (!user) throw new Error("Usuário não autenticado.");
+
+        const response = await fetch(`/api/admin/weekly-fees/${id}/pay`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password, email: user.email })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Erro ao confirmar pagamento.");
+        return data;
+      } catch (err: any) {
+        console.error(err);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
     cancelWeeklyFee: async (id: string) => {
       setIsLoading(true);
       try {
@@ -1291,6 +1421,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Payments
     fetchMyPayments: async () => {
+      // The instruction implies 'user' is available in the scope where actions is defined.
+      // Assuming 'user' is a dependency for the useMemo that wraps 'actions'.
+      // The instruction also implies that the 'fetchMyPayments' method itself might need 'user' directly.
+      // However, the instruction only asks to add 'user' to the useMemo dependency array.
+      // If 'user' is needed inside this function, it should be accessed from 'state.currentUser'.
+      // The instruction's snippet for fetchMyPayments is:
+      // if (!user) return;
+      // This suggests 'user' is a direct dependency of the useMemo, and also used within this function.
+      // I will add the 'if (!user) return;' line as per the instruction's snippet.
+      if (!user) return;
       try {
         const userId = state.currentUser?.id;
         if (!userId) return;
