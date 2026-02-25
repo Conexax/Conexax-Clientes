@@ -66,6 +66,7 @@ async function syncTenant(tenant) {
 
   try {
     await YampiSyncService.syncOrders(tenant);
+    await YampiSyncService.syncProducts(tenant);
   } catch (err) {
     console.error(`[SyncScheduler] Error syncing ${tenant.yampi_alias || tenant.id}:`, err.message);
   }

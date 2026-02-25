@@ -83,6 +83,12 @@ export interface Tenant {
   companyPercentage?: number;
   cachedGrossRevenue?: number;
   logoUrl?: string;
+
+  // Integrations
+  metaAccessToken?: string;
+  metaAdAccountId?: string;
+  ga4MeasurementId?: string;
+  gaCredentials?: any;
 }
 
 export interface Domain {

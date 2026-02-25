@@ -30,7 +30,7 @@ export function sendMockPush(title: string, message: string) {
             registration.showNotification(title, {
                 body: message,
                 icon: '/logo-conexx.png',
-                vibrate: [200, 100, 200]
+                // vibrate: [200, 100, 200] as any
             });
         });
     }

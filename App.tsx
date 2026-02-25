@@ -1,10 +1,7 @@
 
 import React from 'react';
 import { HashRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-// This tool call seems to be for `multi_replace_file_content` based on logic, but I selected `replace_file_content` in thought.
-// I will use `replace_file_content` for the import first.
-// This tool call seems to be for `multi_replace_file_content` based on logic, but I selected `replace_file_content` in thought.
-// I will use `replace_file_content` for the import first.
+import AdsAnalytics from './pages/AdsAnalytics';
 import MobileNavigation from './components/MobileNavigation';
 import IOSInstallPrompt from './components/IOSInstallPrompt';
 import { DataProvider, useData } from './context/DataContext';
@@ -126,19 +123,25 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
         onClick={onClose}
       />
 
-      <aside className={`fixed left-0 top-0 h-screen w-64 glass-panel border-r border-neutral-border flex flex-col z-[60] overflow-y-auto scrollbar-thin transition-transform duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-8 pb-4">
+      <aside className={`fixed left-0 top-0 h-screen w-[280px] bg-[#0a0a0a] border-r border-white/5 flex flex-col z-[60] overflow-y-auto scrollbar-thin transition-transform duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="p-6 pb-2">
           <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center justify-start gap-4 mb-8">
-              <img src="/logo-conexx.png" alt="Conexx" className="h-10 w-auto object-contain" />
-              <h1 className="text-2xl font-bold tracking-tight text-white italic">ConexaX</h1>
+            <div className="flex items-center gap-3">
+              {isAdmin || !state.activeTenant?.logoUrl ? (
+                <>
+                  <img src="/logo-conexx.png" alt="Conexx" className="h-8 w-auto object-contain" />
+                  <h1 className="text-2xl font-bold tracking-tight text-white italic">ConexaX</h1>
+                </>
+              ) : (
+                <img src={state.activeTenant.logoUrl} alt={state.activeTenant.name || 'Tenant'} className="h-8 w-auto object-contain" />
+              )}
             </div>
-            <button onClick={onClose} className="lg:hidden text-slate-400 hover:text-white">
-              <span className="material-symbols-outlined">close</span>
+            <button onClick={onClose} className="lg:hidden text-slate-400 hover:text-white p-1">
+              <span className="material-symbols-outlined text-[26px]">close</span>
             </button>
           </div>
 
-          <nav className="space-y-2">
+          <nav className="space-y-1">
             {isAdmin ? (
               <>
                 <SidebarItem to="/" icon="monitoring" label="Dashboard Global" active={currentPath === ''} onClick={onClose} />
@@ -163,6 +166,7 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
 
                 <SidebarGroup label="Vendas & Mkt" icon="campaign" isOpen={openGroup === 'sales'} onToggle={() => toggleGroup('sales')}>
                   <SidebarItem to="/orders" icon="shopping_bag" label="Vendas Live" active={currentPath === 'orders'} onClick={onClose} />
+                  <SidebarItem to="/faturamento/ads" icon="monitoring" label="Tráfego & Ads" active={currentPath === 'faturamento/ads'} onClick={onClose} />
                   <SidebarItem to="/marketing" icon="celebration" label="Influenciadores" active={currentPath === 'marketing'} onClick={onClose} />
                   <SidebarItem to="/automations" icon="hub" label="Automações SMS" active={currentPath === 'automations'} onClick={onClose} />
                 </SidebarGroup>
@@ -183,22 +187,27 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
           </nav>
         </div>
 
-        <div className="mt-auto p-8 border-t border-neutral-border/30">
-
+        <div className="mt-auto p-6 border-t border-white/5 space-y-5">
           <button
             onClick={() => { actions.logout(); onClose(); }}
-            className="w-full py-2 px-3 bg-red-500/10 border border-red-500/20 rounded-lg text-[10px] font-black uppercase text-red-400 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 bg-[#1a0f0f] border border-red-500/20 rounded-xl text-xs font-black uppercase text-red-400 hover:bg-red-500/10 transition-all flex items-center justify-center gap-2"
           >
-            <span className="material-symbols-outlined text-sm">logout</span> Sair
+            <span className="material-symbols-outlined text-[18px]">logout</span> SAIR
           </button>
-          <div className="flex items-center gap-4 mt-4">
-            <NotificationCenter />
-            <div className="w-10 h-10 rounded-full bg-slate-800 border border-neutral-border flex items-center justify-center font-black text-xs text-primary">
-              {state.currentUser?.name.substring(0, 1)}
+
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-[#1a1a1a] rounded-[18px] flex items-center justify-center shrink-0 border border-white/5 hover:bg-white/5 transition-colors">
+              <NotificationCenter />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white truncate">{state.currentUser?.name}</p>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">{isAdmin ? 'Conexx Hub' : 'Gestor de Loja'}</p>
+
+            <div className="flex items-center gap-4 flex-1 min-w-0">
+              <div className="w-11 h-11 rounded-full bg-[#1e293b] flex items-center justify-center font-black text-sm text-emerald-500 shrink-0">
+                {state.currentUser?.name.substring(0, 1).toLowerCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white truncate">{state.currentUser?.name}</p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-none mt-0.5">{isAdmin ? 'Conexx Hub' : 'Gestor de Loja'}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -235,19 +244,13 @@ const MainLayout = () => {
   return (
     <div className="flex flex-col lg:flex-row">
       {/* Mobile Top Header */}
-      <header className="lg:hidden h-16 bg-neutral-900/50 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6 sticky top-0 z-[50]">
-        <div className="flex items-center gap-3">
-          <img src="/logo-conexx.png" alt="Conexx" className="h-8 w-auto object-contain" />
-          <span className="text-lg font-bold text-white italic">ConexaX</span>
+      <header className="lg:hidden h-16 bg-[#0a0a0a] border-b border-white/5 flex items-center justify-between px-5 sticky top-0 z-[50]">
+        <div className="flex items-center gap-2">
+          <img src="/logo-conexx.png" alt="Conexx" className="h-6 w-auto object-contain" />
+          <span className="text-base font-bold text-white italic">ConexaX</span>
         </div>
-        <div className="flex items-center gap-3">
-          <NotificationCenter />
-          <button
-            onClick={() => setIsSidebarOpen(true)}
-            className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white"
-          >
-            <span className="material-symbols-outlined">menu</span>
-          </button>
+        <div className="flex items-center gap-2" id="mobile-header-actions">
+          {/* Dashboard date portal can inject here */}
         </div>
       </header>
 
@@ -260,6 +263,7 @@ const MainLayout = () => {
             <Route path="/" element={isAdmin ? <AdminDashboard /> : <Dashboard />} />
             <Route path="/admin/statement" element={<AdminStatement />} />
             <Route path="/orders" element={<Orders />} />
+            <Route path="/faturamento/ads" element={<AdsAnalytics />} />
             <Route path="/marketing" element={<Marketing />} />
             <Route path="/automations" element={<Automations />} />
             <Route path="/performance" element={<Performance />} />
@@ -292,7 +296,7 @@ const MainLayout = () => {
         </div>
       </main>
 
-      <MobileNavigation />
+      <MobileNavigation onOpenMenu={() => setIsSidebarOpen(true)} />
       <IOSInstallPrompt />
     </div>
   );

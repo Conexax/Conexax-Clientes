@@ -88,7 +88,11 @@ const mapTenantFromDB = (dbTenant: any): Tenant => ({
   pendingPlanId: dbTenant.pending_plan_id,
   pendingBillingCycle: dbTenant.pending_billing_cycle,
   pendingPaymentUrl: dbTenant.pending_payment_url,
-  logoUrl: dbTenant.logo_url
+  logoUrl: dbTenant.logo_url,
+  metaAccessToken: dbTenant.meta_access_token,
+  metaAdAccountId: dbTenant.meta_ad_account_id,
+  ga4MeasurementId: dbTenant.ga4_measurement_id,
+  gaCredentials: dbTenant.ga_credentials
 });
 
 const mapUserFromDB = (dbUser: any): User => ({
@@ -168,14 +172,14 @@ const mapOrderFromDB = (r: any): Order => ({
   id: r.id || `#${r.external_id} `,
   tenantId: r.tenant_id,
   externalId: r.external_id,
-  client: r.client_name,
-  email: r.client_email,
-  product: r.product_name,
-  date: r.order_date,
+  client: r.client,
+  email: r.email,
+  product: r.product,
+  date: r.date,
   status: r.status,
   paymentMethod: r.payment_method,
-  value: Number(r.total_value) || 0,
-  initials: (r.client_name?.[0] || 'C').toUpperCase(),
+  value: Number(r.value) || 0,
+  initials: (r.client?.[0] || 'C').toUpperCase(),
   couponCode: r.coupon_code
 });
 
@@ -648,10 +652,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log(`[syncAllOrders] Syncing orders for user role: ${currentUser.role}, Tenant: ${currentUser.tenantId}`);
 
         if (currentUser.role === UserRole.CONEXX_ADMIN) {
-          const { data } = await supabase.from('orders').select('*').order('order_date', { ascending: false }).limit(1000);
+          const { data } = await supabase.from('orders').select('*').order('date', { ascending: false }).limit(1000);
           fetchedOrders = data || [];
         } else if (currentUser.tenantId) {
-          const { data } = await supabase.from('orders').select('*').eq('tenant_id', currentUser.tenantId).order('order_date', { ascending: false });
+          const { data } = await supabase.from('orders').select('*').eq('tenant_id', currentUser.tenantId).order('date', { ascending: false });
           fetchedOrders = data || [];
         }
 
@@ -663,6 +667,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }));
       } catch (e) {
         console.error("Error syncing orders:", e);
+      }
+    },
+    syncAllProducts: async () => {
+      const { currentUser, activeTenant } = state;
+      if (!currentUser) return;
+
+      try {
+        let fetchedProducts: any[] = [];
+        if (currentUser.role === UserRole.CONEXX_ADMIN) {
+          const { data } = await supabase.from('products').select('*');
+          fetchedProducts = data || [];
+        } else if (activeTenant) {
+          const { data } = await supabase.from('products').select('*').eq('tenant_id', activeTenant.id);
+          fetchedProducts = data || [];
+        }
+
+        setState(prev => ({
+          ...prev,
+          products: fetchedProducts.map(mapProductFromDB)
+        }));
+      } catch (e) {
+        console.error("Error syncing products:", e);
       }
     },
     syncYampi: async (targetTenantId?: string) => {
@@ -688,6 +714,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Refresh state
         await syncAllOrders();
+        await actions.syncAllProducts();
 
         if (state.currentUser?.role === UserRole.CONEXX_ADMIN) {
           const { data: allTenants } = await supabase.from('tenants').select('*');
@@ -753,13 +780,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           yampi_secret: data.yampiSecret,
           yampi_alias: data.yampiAlias,
           yampi_proxy_url: data.yampiProxyUrl,
-          plan_id: data.planId || 'p_free',
+          plan_id: data.planId || null,
           billing_cycle: data.billingCycle,
           active: data.active !== undefined ? data.active : true,
           document: data.document,
           meta_range: data.metaRange,
           company_percentage: data.companyPercentage || 0,
-          logo_url: data.logoUrl
+          logo_url: data.logoUrl,
+          meta_access_token: data.metaAccessToken,
+          meta_ad_account_id: data.metaAdAccountId,
+          ga4_measurement_id: data.ga4MeasurementId,
+          ga_credentials: data.gaCredentials
         };
 
         Object.keys(tenantPayload).forEach(key => tenantPayload[key] === undefined && delete tenantPayload[key]);
@@ -813,9 +844,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
 
+          // Force update for new Meta/GA fields using standard update, since RPCs might not support them yet
+          const extrasPayload: any = {};
+          if (data.metaAccessToken !== undefined) extrasPayload.meta_access_token = data.metaAccessToken;
+          if (data.metaAdAccountId !== undefined) extrasPayload.meta_ad_account_id = data.metaAdAccountId;
+          if (data.ga4MeasurementId !== undefined) extrasPayload.ga4_measurement_id = data.ga4MeasurementId;
+          if (data.gaCredentials !== undefined) extrasPayload.ga_credentials = data.gaCredentials;
+
+          if (Object.keys(extrasPayload).length > 0) {
+            await supabase.from('tenants').update(extrasPayload).eq('id', tenantId);
+          }
+
           // Fetch updated to return valid object if savedTenant is null
-          const { data } = await supabase.from('tenants').select().eq('id', tenantId).single();
-          savedTenant = data;
+          const { data: updatedData } = await supabase.from('tenants').select().eq('id', tenantId).single();
+          savedTenant = updatedData;
 
         } else {
           // Insert new
@@ -1218,12 +1260,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     markFeeAsPaid: async (id: string, password: string) => {
       setIsLoading(true);
       try {
-        if (!user) throw new Error("Usuário não autenticado.");
+        if (!state.currentUser) throw new Error("Usuário não autenticado.");
 
         const response = await fetch(`/api/admin/weekly-fees/${id}/pay`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password, email: user.email })
+          body: JSON.stringify({ password, email: state.currentUser.email })
         });
 
         const data = await response.json();
@@ -1429,8 +1471,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // The instruction's snippet for fetchMyPayments is:
       // if (!user) return;
       // This suggests 'user' is a direct dependency of the useMemo, and also used within this function.
-      // I will add the 'if (!user) return;' line as per the instruction's snippet.
-      if (!user) return;
+      if (!state.currentUser) return;
       try {
         const userId = state.currentUser?.id;
         if (!userId) return;
@@ -1496,16 +1537,31 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     saveProduct: async (prod: Partial<Product>) => {
       if (!state.activeTenant) return;
+      setIsSyncing(true); // Add syncing state to disable buttons during remote call
       try {
         let finalId = prod.id;
+        let yampiProductId = prod.yampiProductId;
+
+        // Try to push to Yampi first if integration is active
+        if (state.activeTenant.yampiAlias) {
+          try {
+            const yampiRes = await YampiService.createProductOnYampi(state.activeTenant, prod);
+            if (yampiRes && yampiRes.id) {
+              yampiProductId = typeof yampiRes.id === 'number' ? yampiRes.id : parseInt(yampiRes.id);
+            }
+          } catch (ye) {
+            console.error("Yampi push failed, continuing with local save:", ye);
+            // Optionally show a toast, but typically we want to save local anyway and sync later
+          }
+        }
 
         // Duplicate Check: If no ID but has Yampi ID, try to find existing
-        if (!finalId && prod.yampiProductId) {
+        if (!finalId && yampiProductId) {
           const { data: existing } = await supabase
             .from('products')
             .select('id')
             .eq('tenant_id', state.activeTenant.id)
-            .eq('yampi_product_id', prod.yampiProductId)
+            .eq('yampi_product_id', yampiProductId)
             .single();
           if (existing) finalId = existing.id;
         }
@@ -1520,7 +1576,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           active: prod.active,
           category_id: prod.categoryId,
           operation_type: prod.operationType,
-          yampi_product_id: prod.yampiProductId,
+          yampi_product_id: yampiProductId, // Use the potentially newly created ID
           images: prod.images
         };
         if (!payload.id) delete payload.id;
@@ -1539,6 +1595,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (e: any) {
         console.error("saveProduct error", e);
         throw e;
+      } finally {
+        setIsSyncing(false);
       }
     },
     deleteProduct: async (id: string) => {

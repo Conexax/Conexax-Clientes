@@ -2,16 +2,17 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 
-const WeeklyFees: React.FC = () => {
+const WeeklyFees: React.FC<{ tenantId?: string; readOnly?: boolean }> = ({ tenantId, readOnly }) => {
     const { state, actions, isLoading } = useData();
     const [methodModal, setMethodModal] = useState<string | null>(null);
     const [processingId, setProcessingId] = useState<string | null>(null);
 
     useEffect(() => {
-        if (state.activeTenant?.id) {
-            actions.fetchWeeklyFees(state.activeTenant.id);
+        const targetId = tenantId || state.activeTenant?.id;
+        if (targetId) {
+            actions.fetchWeeklyFees(targetId);
         }
-    }, [state.activeTenant?.id]);
+    }, [state.activeTenant?.id, tenantId]);
 
     const handleGenerate = async (id: string, method: string) => {
         setProcessingId(id);
@@ -111,7 +112,7 @@ const WeeklyFees: React.FC = () => {
                                 </td>
                                 <td className="px-6 py-5 text-right">
                                     <div className="flex justify-end gap-2">
-                                        {fee.status === 'pending' && (
+                                        {fee.status === 'pending' && !readOnly && (
                                             <button
                                                 onClick={() => setMethodModal(fee.id)}
                                                 disabled={processingId === fee.id}
@@ -120,7 +121,7 @@ const WeeklyFees: React.FC = () => {
                                                 Pagar Agora
                                             </button>
                                         )}
-                                        {fee.status === 'created' && (
+                                        {fee.status === 'created' && !readOnly && (
                                             <>
                                                 <a
                                                     href={fee.asaasInvoiceUrl}
@@ -191,7 +192,7 @@ const WeeklyFees: React.FC = () => {
                         </div>
 
                         <div className="flex flex-col gap-2">
-                            {fee.status === 'pending' && (
+                            {fee.status === 'pending' && !readOnly && (
                                 <button
                                     onClick={() => setMethodModal(fee.id)}
                                     disabled={processingId === fee.id}
@@ -200,7 +201,7 @@ const WeeklyFees: React.FC = () => {
                                     Pagar Agora
                                 </button>
                             )}
-                            {fee.status === 'created' && (
+                            {fee.status === 'created' && !readOnly && (
                                 <div className="flex gap-2">
                                     <a
                                         href={fee.asaasInvoiceUrl}

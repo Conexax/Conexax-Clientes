@@ -39,13 +39,13 @@ const Importer: React.FC = () => {
       if (error) { append(`Tabela 'checkouts_abandonados' não encontrada ou erro: ${error.message}`); return; }
       append(`Encontrados ${data.length} registros. Iniciando cópia...`);
       const mapped = (data as any[]).map(r => ({
-        id: r.id || (Math.random().toString(36).slice(2,12)),
+        id: r.id || (Math.random().toString(36).slice(2, 12)),
         tenant_id: null,
         client_name: r.client_name || r.cliente || (r.customer?.data?.first_name),
         email: r.email || r.customer?.data?.email,
         items: r.items ? (typeof r.items === 'string' ? JSON.parse(r.items) : r.items) : null,
         total_value: r.total_value || r.value_total || r.total || 0,
-        created_at: r.created_at || now()
+        created_at: r.created_at || new Date().toISOString()
       }));
       const { error: insErr } = await supabase.from('abandoned_checkouts').insert(mapped);
       if (insErr) { append(`Erro ao inserir abandonados: ${insErr.message}`); return; }

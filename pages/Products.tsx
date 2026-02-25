@@ -10,10 +10,9 @@ const Products: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Modals
   const [showEditor, setShowEditor] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
+  const [syncingYampi, setSyncingYampi] = useState(false);
 
   const [editing, setEditing] = useState<Product | null>(null);
 
@@ -84,7 +83,23 @@ const Products: React.FC = () => {
         </div>
         <div className="flex gap-2 flex-wrap items-center">
           <button onClick={() => setShowCategoryManager(true)} className="flex-1 md:flex-none px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl font-bold text-xs md:text-sm">Categorias</button>
-          <button onClick={() => setShowImportModal(true)} className="flex-1 md:flex-none px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl font-bold text-xs md:text-sm">Importar Yampi</button>
+          <button
+            onClick={async () => {
+              setSyncingYampi(true);
+              try {
+                await actions.syncYampi();
+                await fetchProducts();
+              } catch (e) {
+                alert('Erro na sincronização');
+              } finally {
+                setSyncingYampi(false);
+              }
+            }}
+            disabled={syncingYampi}
+            className="flex-1 md:flex-none px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl font-bold text-xs md:text-sm disabled:opacity-50"
+          >
+            {syncingYampi ? 'Sincronizando...' : 'Sincronizar Yampi'}
+          </button>
           <button onClick={() => { setEditing(null); setShowEditor(true); }} className="w-full md:w-auto px-4 py-2 bg-primary hover:bg-emerald-500 rounded-xl font-bold text-xs md:text-sm text-black">Novo Produto</button>
         </div>
       </header>
@@ -204,19 +219,6 @@ const Products: React.FC = () => {
           onClose={() => setShowCategoryManager(false)}
           onSave={actions.saveCategory}
           onDelete={actions.deleteCategory}
-        />
-      )}
-
-      {showImportModal && (
-        <YampiImportModal
-          onClose={() => setShowImportModal(false)}
-          onImport={async (selected) => {
-            for (const p of selected) {
-              await actions.saveProduct(p);
-            }
-            fetchProducts();
-            setShowImportModal(false);
-          }}
         />
       )}
     </div>
@@ -422,101 +424,6 @@ const CategoryManager: React.FC<{
             </div>
           ))}
           {categories.length === 0 && <p className="text-center text-slate-500 text-sm">Nenhuma categoria criada.</p>}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const YampiImportModal: React.FC<{ onClose: () => void; onImport: (products: Partial<Product>[]) => void }> = ({ onClose, onImport }) => {
-  const { state } = useData();
-  const [loading, setLoading] = useState(false);
-  const [yampiProducts, setYampiProducts] = useState<any[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    const load = async () => {
-      if (!state.activeTenant) return;
-      setLoading(true);
-      try {
-        const prods = await YampiService.syncProductsFromYampi(state.activeTenant);
-        setYampiProducts(prods);
-      } catch (e) {
-        console.error(e);
-        alert('Erro ao buscar produtos da Yampi check console');
-      } finally { setLoading(false); }
-    };
-    load();
-  }, [state.activeTenant]);
-
-  const toggleSelect = (id: string) => {
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelectedIds(next);
-  };
-
-  const handleImport = () => {
-    const selected = yampiProducts.filter(p => selectedIds.has(p.sku || p.id));
-    const mapped: Partial<Product>[] = selected.map(p => ({
-      name: p.name,
-      sku: p.sku?.toString(),
-      description: p.description,
-      price: p.price,
-      active: true,
-      yampiProductId: typeof p.id === 'number' ? p.id : parseInt(p.id) || 0, // Try to parse if it's string, yampi ids are usually int
-      images: p.images?.data?.map((i: any) => i.url) || []
-    }));
-    onImport(mapped);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-panel-dark w-full max-w-4xl rounded-2xl p-6 border border-white/10 shadow-2xl h-[80vh] flex flex-col">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h3 className="text-xl font-bold text-white">Importar da Yampi</h3>
-            <p className="text-sm text-slate-400">Selecione os produtos para importar para o catálogo local.</p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">&times;</button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto mb-6 bg-black/20 rounded-xl p-2">
-          {loading && <div className="p-8 text-center text-slate-400">Carregando produtos da Yampi...</div>}
-          {!loading && yampiProducts.length === 0 && <div className="p-8 text-center text-slate-400">Nenhum produto encontrado na Yampi.</div>}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {!loading && yampiProducts.map(p => {
-              const isSelected = selectedIds.has(p.sku || p.id);
-              return (
-                <div
-                  key={p.id}
-                  onClick={() => toggleSelect(p.sku || p.id)}
-                  className={`p-3 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-primary/20 border-primary' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? 'border-primary bg-primary' : 'border-white/30'}`}>
-                      {isSelected && <div className="w-2 h-2 rounded-full bg-black" />}
-                    </div>
-                    <span className="text-xs font-mono text-slate-500">{p.sku}</span>
-                  </div>
-                  <h4 className="font-bold text-white text-sm line-clamp-2 h-10">{p.name}</h4>
-                  <p className="text-primary mt-2 font-mono">R$ {p.price?.toFixed(2)}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
-          <button onClick={onClose} className="px-5 py-2 hover:bg-white/5 rounded-xl text-slate-300">Cancelar</button>
-          <button
-            onClick={handleImport}
-            disabled={selectedIds.size === 0}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Importar {selectedIds.size} Produtos
-          </button>
         </div>
       </div>
     </div>

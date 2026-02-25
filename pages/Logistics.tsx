@@ -46,10 +46,37 @@ const Logistics: React.FC = () => {
         ))}
       </div>
 
-      <div className="glass-panel rounded-2xl overflow-hidden text-center py-32 border-dashed border-neutral-border">
-        <span className="material-symbols-outlined text-slate-800 text-6xl mb-4">local_shipping</span>
-        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Aguardando dados de logística da Yampi</p>
-        <p className="text-slate-600 text-xs mt-2">Os status de envio serão sincronizados automaticamente após a conexão.</p>
+      <div className="relative glass-panel rounded-3xl overflow-hidden p-8 border border-white/5 bg-[#0a0a0a] min-h-[400px] flex flex-col items-center justify-center">
+        {/* Background grid */}
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMSIgY3k9IjEiIHI9IjEiIGZpbGw9InJnYmEoMjU1LCAyNTUsIDI1NSwgMC4wNSkiLz48L3N2Zz4=')] opacity-50" />
+
+        {/* Radar/Pulse circles */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+          <div className="w-[400px] h-[400px] rounded-full border border-primary/10 animate-ping opacity-20" style={{ animationDuration: '3s' }} />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200px] h-[200px] rounded-full border border-primary/20 animate-ping opacity-30" style={{ animationDuration: '3s', animationDelay: '1s' }} />
+        </div>
+
+        {/* Floating Tracking Points */}
+        <div className="absolute top-[30%] left-[30%] group cursor-pointer">
+          <div className="w-3 h-3 bg-primary rounded-full shadow-[0_0_15px_rgba(34,197,94,1)] animate-pulse" />
+          <div className="opacity-0 group-hover:opacity-100 absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-[#1a1a1a] border border-white/10 px-4 py-2 rounded-xl text-xs font-bold text-white whitespace-nowrap transition-opacity shadow-2xl">São Paulo, SP<br /><span className="text-primary text-[10px] uppercase tracking-widest">Em trânsito</span></div>
+        </div>
+        <div className="absolute top-[60%] left-[70%] group cursor-pointer">
+          <div className="w-2.5 h-2.5 bg-amber-500 rounded-full shadow-[0_0_15px_rgba(245,158,11,1)] animate-pulse" />
+          <div className="opacity-0 group-hover:opacity-100 absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-[#1a1a1a] border border-white/10 px-4 py-2 rounded-xl text-xs font-bold text-white whitespace-nowrap transition-opacity shadow-2xl">Rio de Janeiro, RJ<br /><span className="text-amber-500 text-[10px] uppercase tracking-widest">Pendente</span></div>
+        </div>
+        <div className="absolute top-[45%] left-[55%] group cursor-pointer">
+          <div className="w-3 h-3 bg-primary rounded-full shadow-[0_0_15px_rgba(34,197,94,1)] animate-pulse" />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex flex-col items-center bg-black/40 p-8 rounded-3xl backdrop-blur-md border border-white/5 shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-6 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
+            <span className="material-symbols-outlined text-3xl">explore</span>
+          </div>
+          <h3 className="text-2xl font-black text-white tracking-tight mb-2">Radar de Logística</h3>
+          <p className="text-slate-400 text-sm max-w-sm text-center">Visão global dos seus pacotes em tempo real. Os dados de geolocalização exatos são plotados aqui assim que a transportadora assume a carga.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
@@ -66,21 +93,26 @@ const Logistics: React.FC = () => {
                 <div className="text-center text-slate-600 text-xs font-bold uppercase tracking-widest p-12">Sem pendências</div>
               ) : (
                 <table className="w-full text-left">
-                  <thead className="bg-black/40 border-b border-neutral-border/50">
+                  <thead className="bg-[#0a0a0a] border-b border-white/5">
                     <tr>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-500">Pedido</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-500">Cliente</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-500">Valor</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-500">Criado</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Pedido</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Cliente</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Valor</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Criado</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-white/5">
                     {orders.filter(o => o.status === 'AGUARDANDO').map(o => (
-                      <tr key={o.id} className="hover:bg-white/5">
-                        <td className="px-4 py-3 font-mono text-sm text-slate-300">{o.id}</td>
-                        <td className="px-4 py-3 text-sm text-white">{o.client}</td>
-                        <td className="px-4 py-3 text-sm text-white">R$ {o.value.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-sm text-slate-400">{new Date(o.date).toLocaleString()}</td>
+                      <tr key={o.id} className="hover:bg-white/[0.02] transition-colors group">
+                        <td className="px-6 py-4">
+                          <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-white/5 rounded-md border border-white/5">
+                            <span className="material-symbols-outlined text-xs text-slate-500">tag</span>
+                            <span className="font-mono text-xs font-bold text-slate-300 uppercase tracking-widest">{o.id.split('-')[0]}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-white group-hover:text-amber-500 transition-colors">{o.client}</td>
+                        <td className="px-6 py-4 text-sm font-black text-white">R$ {o.value.toFixed(2)}</td>
+                        <td className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">{new Date(o.date).toLocaleDateString()}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -91,15 +123,18 @@ const Logistics: React.FC = () => {
             {/* Mobile Cards */}
             <div className="lg:hidden space-y-4">
               {orders.filter(o => o.status === 'AGUARDANDO').map(o => (
-                <div key={o.id} className="glass-panel p-5 rounded-2xl border-white/5 space-y-3">
+                <div key={o.id} className="glass-panel p-5 rounded-2xl border-white/5 space-y-4 shadow-lg shadow-black/20">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pedido: {o.id}</span>
-                    <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-black rounded uppercase">PENDENTE</span>
+                    <div className="inline-flex items-center gap-1.5 opacity-80">
+                      <span className="material-symbols-outlined text-xs text-slate-500">tag</span>
+                      <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">{o.id.split('-')[0]}</span>
+                    </div>
+                    <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-black rounded border border-amber-500/20 uppercase">PENDENTE</span>
                   </div>
-                  <h4 className="text-sm font-bold text-white">{o.client}</h4>
-                  <div className="flex justify-between items-center pt-3 border-t border-white/5">
+                  <h4 className="text-base font-black text-white tracking-wide">{o.client}</h4>
+                  <div className="flex justify-between items-center pt-4 border-t border-white/5">
                     <span className="text-sm font-black text-white">R$ {o.value.toFixed(2)}</span>
-                    <span className="text-[10px] text-slate-500">{new Date(o.date).toLocaleDateString()}</span>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{new Date(o.date).toLocaleDateString()}</span>
                   </div>
                 </div>
               ))}
@@ -123,21 +158,26 @@ const Logistics: React.FC = () => {
                 <div className="text-center text-slate-600 text-xs font-bold uppercase tracking-widest p-12">Nenhum pacote em trânsito</div>
               ) : (
                 <table className="w-full text-left">
-                  <thead className="bg-black/40 border-b border-neutral-border/50">
+                  <thead className="bg-[#0a0a0a] border-b border-white/5">
                     <tr>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-500">Pedido</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-500">Rastreamento</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-500">Serviço</th>
-                      <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-500">Cliente</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Pedido</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Rastreamento</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Serviço</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Cliente</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-white/5">
                     {orders.filter(o => !o.delivered && (o.rawStatusAlias === 'shipping' || (o.status === 'APROVADO' && !o.delivered))).map(o => (
-                      <tr key={o.id} className="hover:bg-white/5">
-                        <td className="px-4 py-3 font-mono text-sm text-slate-300">{o.id}</td>
-                        <td className="px-4 py-3 text-sm text-white">{o.trackCode || '—'}</td>
-                        <td className="px-4 py-3 text-sm text-slate-400">{o.shipmentService || '—'}</td>
-                        <td className="px-4 py-3 text-sm text-white">{o.client}</td>
+                      <tr key={o.id} className="hover:bg-white/[0.02] transition-colors group">
+                        <td className="px-6 py-4">
+                          <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-white/5 rounded-md border border-white/5">
+                            <span className="material-symbols-outlined text-xs text-slate-500">tag</span>
+                            <span className="font-mono text-xs font-bold text-slate-300 uppercase tracking-widest">{o.id.split('-')[0]}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-primary font-mono">{o.trackCode || '—'}</td>
+                        <td className="px-6 py-4 text-xs font-bold text-slate-400 tracking-wide uppercase">{o.shipmentService || '—'}</td>
+                        <td className="px-6 py-4 text-sm font-bold text-white group-hover:text-primary transition-colors">{o.client}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -148,23 +188,29 @@ const Logistics: React.FC = () => {
             {/* Mobile Cards */}
             <div className="lg:hidden space-y-4">
               {orders.filter(o => !o.delivered && (o.rawStatusAlias === 'shipping' || (o.status === 'APROVADO' && !o.delivered))).map(o => (
-                <div key={o.id} className="glass-panel p-5 rounded-2xl border-white/5 space-y-4">
+                <div key={o.id} className="glass-panel p-5 rounded-2xl border-white/5 space-y-5 shadow-lg shadow-black/20">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Rastreamento</p>
-                      <h4 className="text-sm font-black text-primary font-mono">{o.trackCode || 'Pendente'}</h4>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Rastreamento</p>
+                      <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/5 border border-primary/20 rounded-lg">
+                        <span className="material-symbols-outlined text-[14px] text-primary">local_shipping</span>
+                        <h4 className="text-sm font-black text-primary font-mono tracking-widest">{o.trackCode || 'Pendente'}</h4>
+                      </div>
                     </div>
-                    <span className="px-2 py-1 bg-primary/10 text-primary text-[10px] font-black rounded uppercase">EM TRÂNSITO</span>
+                    <span className="px-2 py-1 bg-primary/10 text-primary text-[10px] font-black border border-primary/20 rounded uppercase shadow-[0_0_10px_rgba(34,197,94,0.2)]">EM TRÂNSITO</span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 py-4 border-y border-white/5">
                     <div>
-                      <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Serviço</p>
+                      <p className="text-[10px] font-black tracking-widest text-slate-500 uppercase mb-1.5">Serviço</p>
                       <p className="text-xs text-white font-bold">{o.shipmentService || '—'}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Pedido</p>
-                      <p className="text-xs text-white font-mono">{o.id}</p>
+                      <p className="text-[10px] font-black tracking-widest text-slate-500 uppercase mb-1.5">Pedido</p>
+                      <div className="inline-flex items-center gap-1 opacity-80">
+                        <span className="material-symbols-outlined text-[12px] text-slate-500">tag</span>
+                        <p className="text-xs text-slate-300 font-mono font-bold uppercase tracking-widest">{o.id.split('-')[0]}</p>
+                      </div>
                     </div>
                   </div>
 

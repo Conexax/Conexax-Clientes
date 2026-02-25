@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { toast } from 'react-hot-toast';
-import SubscriptionPanel from '../components/SubscriptionPanel';
 import PreCheckout from '../components/PreCheckout';
 import { PaymentSuccess } from '../components/PaymentSuccess';
 
@@ -13,59 +12,33 @@ const BillingPlans: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showInvoices, setShowInvoices] = useState(false);
   const currentPlan = state.plans.find(p => p.id === state.activeTenant?.planId);
+
+  // New state for Periodicity Modal
+  const [selectedPlanForPeriodicity, setSelectedPlanForPeriodicity] = useState<any>(null);
+
+  // Checkout states
   const [billingCycle, setBillingCycle] = useState<'quarterly' | 'semiannual' | 'yearly'>('quarterly');
-
-  const [manualCheckoutUrl, setManualCheckoutUrl] = useState<string | null>(null);
-
   const [selectedPlanForModal, setSelectedPlanForModal] = useState<any>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'CREDIT_CARD' | 'BOLETO' | 'PIX'>('CREDIT_CARD');
   const [successCheckoutUrl, setSuccessCheckoutUrl] = useState<string | null>(null);
+  const [manualCheckoutUrl, setManualCheckoutUrl] = useState<string | null>(null);
 
-  // Fetch payments on mount or when invoices are shown
   React.useEffect(() => {
     actions.fetchMyPayments();
-  }, [showInvoices]); // Reload when opening modal to be sure
+  }, [showInvoices]);
 
-  const getPrice = (plan: any) => {
-    switch (billingCycle) {
-      case 'quarterly': return plan.priceQuarterly;
-      case 'semiannual': return plan.priceSemiannual;
-      case 'yearly': return plan.priceYearly;
-      default: return 0;
-    }
-  };
-
-  const getLabel = () => {
-    switch (billingCycle) {
-      case 'quarterly': return 'Trimestral';
-      case 'semiannual': return 'Semestral';
-      case 'yearly': return 'Anual';
-    }
-  };
-
-  const getDescription = (plan: any) => {
-    switch (billingCycle) {
-      case 'quarterly': return plan.descriptionQuarterly;
-      case 'semiannual': return plan.descriptionSemiannual;
-      case 'yearly': return plan.descriptionYearly;
-      default: return '';
-    }
-  };
-
-  const handleUpgrade = (plan: any) => {
+  const handleUpgrade = (plan: any, cycle: 'quarterly' | 'semiannual' | 'yearly') => {
     if (loading) return;
+    setBillingCycle(cycle);
     setSelectedPlanForModal(plan);
     setShowPaymentModal(true);
+    setSelectedPlanForPeriodicity(null); // Close the periodicity modal
   };
 
   const executeUpgrade = async (billingType: 'monthly' | 'upfront', paymentMethodArg?: 'CREDIT_CARD' | 'BOLETO' | 'PIX') => {
     if (!selectedPlanForModal) return;
-
-    // Use argument or state
     const methodToUse = paymentMethodArg || paymentMethod;
-
-    // Prefight check for document
     const doc = (state.activeTenant?.document || '').replace(/\D/g, '');
     if (!doc || doc.length < 11) {
       toast.error('Documento (CPF/CNPJ) inválido ou ausente. Por favor, atualize em "Dados do Lojista" antes de assinar.');
@@ -73,29 +46,27 @@ const BillingPlans: React.FC = () => {
     }
 
     setLoading(true);
-    setManualCheckoutUrl(null); // Reset previous
+    setManualCheckoutUrl(null);
 
     try {
       const response = await actions.subscribeToPlan(selectedPlanForModal.id, billingCycle, billingType, methodToUse);
-      console.log('[Debug] Subscribe response full:', response);
-
       if (response?.checkoutUrl) {
-        console.log('[Debug] checkoutUrl found:', response.checkoutUrl);
         toast.success('Fatura gerada com sucesso!');
         setSuccessCheckoutUrl(response.checkoutUrl);
         return;
-      } else {
-        console.warn('[Debug] No checkoutUrl found in response!');
       }
-
       throw new Error('Não foi possível gerar o link de checkout. Tente novamente.');
     } catch (e: any) {
-      console.error(e);
       toast.error(`Falha no upgrade: ${e.message || 'Erro de conexão'}`);
-      // Keep modal open so user can retry
     } finally {
       setLoading(false);
     }
+  };
+
+  const planIcons: Record<string, string> = {
+    'IRON': 'build',
+    'GOLD': 'workspace_premium',
+    'CONEXAX X': 'diamond'
   };
 
   return (
@@ -104,8 +75,6 @@ const BillingPlans: React.FC = () => {
         <h2 className="text-4xl font-black text-white mb-2">Planos & <span className="text-primary italic">Assinatura</span></h2>
         <p className="text-slate-500 font-medium">Gerencie seu nível de serviço e veja os benefícios do ecossistema Conexx.</p>
       </header>
-
-
 
       {/* PLANO ATUAL */}
       <section className="glass-panel p-8 rounded-3xl border-primary/20 bg-primary/5 relative overflow-hidden">
@@ -156,115 +125,129 @@ const BillingPlans: React.FC = () => {
         </div>
       </section>
 
-      {/* Selector de Ciclo */}
-      <div className="flex justify-center mb-8">
-        <div className="bg-black/40 p-1 rounded-xl flex gap-1 border border-white/5">
-          <button onClick={() => setBillingCycle('quarterly')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${billingCycle === 'quarterly' ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-slate-500 hover:text-white'}`}>Trimestral</button>
-          <button onClick={() => setBillingCycle('semiannual')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${billingCycle === 'semiannual' ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-slate-500 hover:text-white'}`}>Semestral</button>
-          <button onClick={() => setBillingCycle('yearly')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${billingCycle === 'yearly' ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-slate-500 hover:text-white'}`}>Anual</button>
-        </div>
-      </div>
-
-      {/* GRADE DE PLANOS */}
+      {/* GRADE DE PLANOS (Overview) */}
       <section>
-        <div className="text-center mb-12">
-          <h3 className="text-xl font-black text-white italic mb-2">Eleve o nível do seu negócio</h3>
-          <p className="text-slate-500 text-sm">Escolha o plano ideal e o ciclo que melhor se adapta à sua operação.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[...state.plans]
             .filter(p => p.active)
             .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
             .map((plan) => {
-              const explicitMonthly = billingCycle === 'quarterly' ? plan.monthlyPriceQuarterly : billingCycle === 'semiannual' ? plan.monthlyPriceSemiannual : billingCycle === 'yearly' ? plan.monthlyPriceYearly : 0;
-              const cycleInstallments = billingCycle === 'quarterly' ? plan.installmentsQuarterly : billingCycle === 'semiannual' ? plan.installmentsSemiannual : billingCycle === 'yearly' ? plan.installmentsYearly : 0;
-              const cycleTrafficFee = billingCycle === 'quarterly' ? plan.trafficFeePercentQuarterly : billingCycle === 'semiannual' ? plan.trafficFeePercentSemiannual : billingCycle === 'yearly' ? plan.trafficFeePercentYearly : 0;
-              const cycleAdCredit = billingCycle === 'quarterly' ? plan.adCreditQuarterly : billingCycle === 'semiannual' ? plan.adCreditSemiannual : billingCycle === 'yearly' ? plan.adCreditYearly : 0;
-
-              const displayMonthly = explicitMonthly || (getPrice(plan) / (billingCycle === 'quarterly' ? 3 : billingCycle === 'semiannual' ? 6 : 12));
-              const trafficFee = cycleTrafficFee || plan.trafficFeePercent || 0;
-              const adCredit = cycleAdCredit || plan.adCredit || 0;
-
+              const iconName = planIcons[plan.name?.toUpperCase()] || 'star';
               return (
-                <div key={plan.id} className={`glass-panel p-8 rounded-[40px] flex flex-col border-2 transition-all ${plan.recommended ? 'border-primary shadow-2xl shadow-primary/10' : 'border-white/5'} relative overflow-hidden`}>
-                  {plan.recommended && <span className="absolute top-4 right-8 px-3 py-1 bg-primary text-neutral-950 text-[10px] font-black uppercase tracking-tighter rounded-full">Recomendado</span>}
+                <div key={plan.id} className="bg-black/40 border border-white/5 rounded-[32px] p-8 flex flex-col hover:border-white/10 transition-all relative">
 
-                  <h4 className="text-2xl font-black text-white">{plan.name}</h4>
-
-                  <div className="mt-6 flex flex-col">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-primary">
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(displayMonthly)}
-                      </span>
-                      <span className="text-slate-400 font-medium text-sm">por mês</span>
-                    </div>
-
-                    {trafficFee > 0 && (
-                      <p className="mt-4 text-sm font-bold text-slate-300">
-                        + {trafficFee}% das vendas realizadas através do tráfego pago
-                      </p>
-                    )}
-
-                    <div className="mt-6 space-y-1 text-xs font-bold uppercase tracking-tight">
-                      <p className="text-slate-500">Valor total: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(getPrice(plan))}</p>
-                      <p className="text-slate-500">Em até {cycleInstallments || plan.installments || 1}x no cartão</p>
-                    </div>
-
-                    {adCredit > 0 && (
-                      <p className="mt-6 text-primary font-black text-base flex items-center gap-2">
-                        <span className="text-xl">+</span> {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(adCredit)} em anúncios
-                      </p>
-                    )}
+                  {/* Plan Icon / Header */}
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#126848] to-[#0A3D2A] flex items-center justify-center border border-white/10 shadow-[0_0_20px_rgba(20,184,166,0.2)] mb-6">
+                    <span className="material-symbols-outlined text-3xl text-white">{iconName}</span>
                   </div>
 
-                  {/* Display specific interval description */}
-                  {getDescription(plan) && (
-                    <p className="mt-6 text-[10px] text-slate-500 font-black uppercase tracking-widest bg-white/5 py-2 px-4 rounded-full self-start border border-white/10">{getDescription(plan)}</p>
-                  )}
+                  <h4 className="text-2xl font-black text-white mb-6">Plano {plan.name}</h4>
 
-                  <div className="mt-8 space-y-4 flex-1">
-                    {plan.features.map((feature: string, i: number) => (
-                      <div key={i} className="flex items-start gap-3 text-xs">
-                        <span className="material-symbols-outlined text-primary text-lg">check_circle</span>
-                        <span className="text-slate-300 font-medium">{feature}</span>
+                  {/* Features List */}
+                  <div className="flex-1 space-y-4 mb-8">
+                    {plan.features?.map((feature: string, i: number) => (
+                      <div key={i} className="flex items-start gap-3">
+                        <span className="material-symbols-outlined text-primary text-base mt-0.5 shrink-0">check</span>
+                        <span className="text-slate-300 text-[13px] leading-snug">{feature}</span>
                       </div>
                     ))}
                   </div>
-                  <div className="mt-8 flex flex-col gap-3">
-                    {state.activeTenant?.pendingPlanId === plan.id ? (
-                      <button
-                        type="button"
-                        onClick={() => state.activeTenant?.pendingPaymentUrl && window.open(state.activeTenant.pendingPaymentUrl, '_blank')}
-                        className="w-full py-4 bg-amber-500 text-neutral-950 rounded-2xl font-black uppercase tracking-widest hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
-                      >
-                        <span className="material-symbols-outlined text-sm">payments</span>
-                        Continuar Pagamento
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={loading || state.activeTenant?.planId === plan.id}
-                        onClick={() => handleUpgrade(plan)}
-                        className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest transition-all ${state.activeTenant?.planId === plan.id
-                          ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 cursor-default'
-                          : 'bg-primary text-neutral-950 hover:bg-primary-dark shadow-xl shadow-primary/20'
-                          }`}
-                      >
-                        {loading ? (
-                          <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin mx-auto" />
-                        ) : (
-                          state.activeTenant?.planId === plan.id ? 'Plano Atual' : 'Fazer Upgrade'
-                        )}
-                      </button>
-                    )}
-                  </div>
+
+                  {/* Actions */}
+                  {state.activeTenant?.planId === plan.id ? (
+                    <button className="w-full py-4 rounded-xl font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 cursor-default">
+                      Plano Atual
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setSelectedPlanForPeriodicity(plan)}
+                      className="w-full py-4 rounded-xl font-bold text-black bg-[#65cba0] hover:bg-[#54b88e] transition-all shadow-[0_0_15px_rgba(101,203,160,0.3)]"
+                    >
+                      Ver preços
+                    </button>
+                  )}
                 </div>
               );
             })}
-
         </div>
       </section>
+
+      {/* MODAL DE PERIODICIDADE */}
+      {selectedPlanForPeriodicity && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+          <div className="bg-[#050505] w-full max-w-6xl rounded-[40px] border border-[#1e2a22] p-8 md:p-12 relative shadow-2xl overflow-y-auto max-h-[90vh]">
+            <button onClick={() => setSelectedPlanForPeriodicity(null)} className="absolute top-8 right-8 text-slate-500 hover:text-white transition-all bg-white/5 rounded-full p-2">
+              <span className="material-symbols-outlined">close</span>
+            </button>
+
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span className="text-xs font-bold text-slate-300 tracking-wide">Escolha a periodicidade ideal</span>
+            </div>
+
+            <h3 className="text-5xl md:text-7xl font-black text-white mb-4 tracking-tighter" style={{ fontFamily: "Georgia, serif" }}>
+              {selectedPlanForPeriodicity.name}
+            </h3>
+            <p className="text-slate-400 text-lg mb-10">Veja os valores do plano e escolha a melhor opção para o seu negócio.</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[
+                {
+                  id: 'quarterly', label: 'Trimestral',
+                  price: selectedPlanForPeriodicity.priceQuarterly,
+                  desc: selectedPlanForPeriodicity.descriptionQuarterly,
+                  months: 3, installments: 6
+                },
+                {
+                  id: 'semiannual', label: 'Semestral',
+                  price: selectedPlanForPeriodicity.priceSemiannual,
+                  desc: selectedPlanForPeriodicity.descriptionSemiannual,
+                  months: 6, installments: 12
+                },
+                {
+                  id: 'yearly', label: 'Anual',
+                  price: selectedPlanForPeriodicity.priceYearly,
+                  desc: selectedPlanForPeriodicity.descriptionYearly,
+                  months: 12, installments: 12
+                }
+              ].map(cycle => (
+                <div key={cycle.id} className="bg-black border border-white/5 rounded-3xl p-8 hover:border-[#1e2a22] transition-colors flex flex-col">
+                  <h4 className="text-xl font-extrabold text-white mb-4">{cycle.label}</h4>
+
+                  <div className="flex items-baseline gap-2 text-[#65cba0]">
+                    <span className="text-4xl font-black">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cycle.price / cycle.months)}
+                    </span>
+                    <span className="text-xs font-bold text-slate-300">por mês</span>
+                  </div>
+
+                  <p className="mt-4 text-xs font-bold text-slate-300 leading-relaxed min-h-[40px]">
+                    + {cycle.desc}
+                  </p>
+
+                  <div className="mt-6 space-y-1">
+                    <p className="text-xs text-slate-500">Valor total: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cycle.price)}</p>
+                    <p className="text-xs text-slate-500">Em até {cycle.installments}x no cartão</p>
+                  </div>
+
+                  <p className="mt-4 text-[#65cba0] font-black text-xs">
+                    + R$ 1.000,00 em anúncios
+                  </p>
+
+                  <div className="flex-1"></div>
+
+                  <button
+                    onClick={() => handleUpgrade(selectedPlanForPeriodicity, cycle.id as any)}
+                    className="mt-8 w-full py-4 rounded-2xl font-black text-black bg-[#65cba0] hover:bg-[#54b88e] transition-all"
+                  >
+                    Contratar agora
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FAQ SIMPLES */}
       <section className="bg-white/5 p-10 rounded-3xl border border-white/5">
@@ -281,7 +264,8 @@ const BillingPlans: React.FC = () => {
         </div>
       </section>
 
-      {/* MODAL DE FATURAS */}
+      {/* MODAL DE FATURAS E PRE-CHECKOUT */}
+      {/* ... (Keeping the same modal implementations) */}
       {showInvoices && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="glass-panel w-full max-w-2xl rounded-3xl shadow-2xl border-white/5 p-8">
@@ -369,7 +353,6 @@ const BillingPlans: React.FC = () => {
         </div>
       )}
 
-      {/* PRE-CHECKOUT FULL SCREEN OVERLAY */}
       {showPaymentModal && selectedPlanForModal && (
         successCheckoutUrl ? (
           <PaymentSuccess
@@ -399,3 +382,4 @@ const BillingPlans: React.FC = () => {
 };
 
 export default BillingPlans;
+

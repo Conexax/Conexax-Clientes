@@ -1,5 +1,5 @@
 
-import { Order, OrderStatus, AbandonedCheckout, Tenant, User, UserRole, Domain, Coupon, Influencer, CommSettings, Plan } from '../types';
+import { Order, OrderStatus, AbandonedCheckout, Tenant, User, UserRole, Domain, Coupon, Influencer, CommSettings, Plan, Product } from '../types';
 import { YampiBackend } from './yampiService';
 
 const STORAGE_KEY = 'conexx_enterprise_db_v3';
@@ -242,6 +242,40 @@ export const YampiService = {
       }));
     } catch (e) {
       return [];
+    }
+  },
+
+  async createProductOnYampi(tenant: Tenant, product: Partial<Product>) {
+    if (!tenant.yampiAlias) return null;
+    try {
+      const creds = {
+        token: tenant.yampiToken || '',
+        secret: tenant.yampiSecret || '',
+        alias: tenant.yampiAlias || '',
+        proxyBaseUrl: tenant.yampiProxyUrl || ''
+      };
+
+      // Map Conexx product fields to Yampi expected payload
+      const payload: any = {
+        name: product.name,
+        sku: product.sku || undefined,
+        description: product.description || '',
+        price: product.price || 0,
+        active: product.active !== undefined ? (product.active ? 1 : 0) : 1
+      };
+
+      // Determine if it is a creation or an update
+      let res;
+      if (product.yampiProductId && product.yampiProductId !== 0) {
+        res = await YampiBackend.updateProduct(creds as any, product.yampiProductId, payload);
+      } else {
+        res = await YampiBackend.createProduct(creds as any, payload);
+      }
+
+      return res; // Returning the Yampi product payload
+    } catch (e) {
+      console.error("[YampiService] Erro ao sincronizar produto para a Yampi:", e);
+      throw e;
     }
   }
 };

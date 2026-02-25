@@ -18,7 +18,7 @@ const REQUEST_TIMEOUT = 15000;
 /**
  * Função centralizada que chama o Backend Externo (Proxy)
  */
-async function proxyRequest(endpoint: string, credentials: YampiProxyCredentials, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: any, useAliasInPath: boolean = true) {
+async function proxyRequest(endpoint: string, credentials: YampiProxyCredentials, method: 'GET' | 'POST' | 'DELETE' | 'PUT' = 'GET', body?: any, useAliasInPath: boolean = true) {
   const { token, secret, alias, proxyBaseUrl } = credentials;
 
   // if (!proxyBaseUrl) {
@@ -219,8 +219,34 @@ export const YampiBackend = {
     } catch (e: any) {
       throw e;
     }
+  },
+
+  /**
+   * Create a generic product on Yampi
+   */
+  async createProduct(creds: YampiProxyCredentials, payload: any) {
+    try {
+      const res = await proxyRequest('catalog/products', creds, 'POST', payload);
+      return res?.data || res;
+    } catch (e: any) {
+      throw e;
+    }
+  },
+
+  /**
+   * Update a generic product on Yampi
+   */
+  async updateProduct(creds: YampiProxyCredentials, yampiProductId: string | number, payload: any) {
+    try {
+      // Products are updated with a PUT, simulating with POST for proxy if needed depending on Yampi API, but typically it is PUT
+      // Assuming proxyRequest supports PUT if we pass it, but changing type definition requires it or we cast
+      const res = await proxyRequest(`catalog/products/${yampiProductId}` as any, creds, 'PUT' as any, payload);
+      return res?.data || res;
+    } catch (e: any) {
+      throw e;
+    }
   }
-,
+  ,
 
   async verifyCreds(creds: YampiProxyCredentials) {
     try {

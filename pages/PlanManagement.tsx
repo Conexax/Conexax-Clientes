@@ -177,148 +177,163 @@ const PlanManagement: React.FC = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-8">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase">Nome do Plano</label>
-                  <input type="text" required className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase">Ordem de Exibição (0 = Primeiro)</label>
-                  <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary" value={formData.orderIndex ?? 0} onChange={e => setFormData({ ...formData, orderIndex: parseInt(e.target.value) })} />
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase">Trimestral (R$ Total)</label>
-                  <input type="number" required className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary" value={formData.priceQuarterly} onChange={e => setFormData({ ...formData, priceQuarterly: parseFloat(e.target.value) })} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Display Mensal (R$)</label>
-                    <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.monthlyPriceQuarterly || ''} onChange={e => setFormData({ ...formData, monthlyPriceQuarterly: parseFloat(e.target.value) })} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Parcelas Máx.</label>
-                    <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.installmentsQuarterly || ''} onChange={e => setFormData({ ...formData, installmentsQuarterly: parseInt(e.target.value) })} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Taxa Tráfego (%)</label>
-                    <input type="number" step="0.1" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.trafficFeePercentQuarterly || ''} onChange={e => setFormData({ ...formData, trafficFeePercentQuarterly: parseFloat(e.target.value) })} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Crédito Ads (R$)</label>
-                    <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.adCreditQuarterly || ''} onChange={e => setFormData({ ...formData, adCreditQuarterly: parseFloat(e.target.value) })} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase">Semestral (R$ Total)</label>
-                  <input type="number" required className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary" value={formData.priceSemiannual} onChange={e => setFormData({ ...formData, priceSemiannual: parseFloat(e.target.value) })} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Display Mensal (R$)</label>
-                    <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.monthlyPriceSemiannual || ''} onChange={e => setFormData({ ...formData, monthlyPriceSemiannual: parseFloat(e.target.value) })} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Parcelas Máx.</label>
-                    <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.installmentsSemiannual || ''} onChange={e => setFormData({ ...formData, installmentsSemiannual: parseInt(e.target.value) })} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Taxa Tráfego (%)</label>
-                    <input type="number" step="0.1" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.trafficFeePercentSemiannual || ''} onChange={e => setFormData({ ...formData, trafficFeePercentSemiannual: parseFloat(e.target.value) })} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Crédito Ads (R$)</label>
-                    <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.adCreditSemiannual || ''} onChange={e => setFormData({ ...formData, adCreditSemiannual: parseFloat(e.target.value) })} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase">Anual (R$ Total)</label>
-                  <input type="number" required className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary" value={formData.priceYearly} onChange={e => setFormData({ ...formData, priceYearly: parseFloat(e.target.value) })} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Display Mensal (R$)</label>
-                    <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.monthlyPriceYearly || ''} onChange={e => setFormData({ ...formData, monthlyPriceYearly: parseFloat(e.target.value) })} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Parcelas Máx.</label>
-                    <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.installmentsYearly || ''} onChange={e => setFormData({ ...formData, installmentsYearly: parseInt(e.target.value) })} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Taxa Tráfego (%)</label>
-                    <input type="number" step="0.1" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.trafficFeePercentYearly || ''} onChange={e => setFormData({ ...formData, trafficFeePercentYearly: parseFloat(e.target.value) })} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase">Crédito Ads (R$)</label>
-                    <input type="number" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-sm text-white focus:ring-primary" value={formData.adCreditYearly || ''} onChange={e => setFormData({ ...formData, adCreditYearly: parseFloat(e.target.value) })} />
-                  </div>
-                </div>
-              </div>
-
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-white/5">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-rose-500 uppercase">Desconto Pagamento À Vista (%)</label>
-                  <input type="number" min="0" max="100" className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-rose-500" value={formData.discountUpfrontPercent || 0} onChange={e => setFormData({ ...formData, discountUpfrontPercent: parseFloat(e.target.value) })} />
-                  <p className="text-[9px] text-slate-500">Percentual de desconto aplicado apenas na opção "Pagar à Vista".</p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase">Descrição Mensagens (Ex: "Cobrado a cada 3 meses")</label>
-                  <div className="grid grid-cols-3 gap-4">
-                    <input type="text" placeholder="Tri" className="bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-[10px] text-white" value={formData.descriptionQuarterly || ''} onChange={e => setFormData({ ...formData, descriptionQuarterly: e.target.value })} />
-                    <input type="text" placeholder="Sem" className="bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-[10px] text-white" value={formData.descriptionSemiannual || ''} onChange={e => setFormData({ ...formData, descriptionSemiannual: e.target.value })} />
-                    <input type="text" placeholder="Anu" className="bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-[10px] text-white" value={formData.descriptionYearly || ''} onChange={e => setFormData({ ...formData, descriptionYearly: e.target.value })} />
-                  </div>
-                </div>
-              </div>
-
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase">Observações</label>
-                <textarea className="w-full bg-black/40 border-neutral-border rounded-xl px-4 py-3 text-sm text-white focus:ring-primary h-24" value={formData.observations || ''} onChange={e => setFormData({ ...formData, observations: e.target.value })} />
-              </div>
-
               <div className="grid grid-cols-2 gap-6">
-                <div className="flex items-center gap-3">
-                  <input type="checkbox" id="rec" className="rounded bg-black border-neutral-border text-primary" checked={formData.recommended} onChange={e => setFormData({ ...formData, recommended: e.target.checked })} />
-                  <label htmlFor="rec" className="text-xs font-bold text-white">Recomendado</label>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">NOME DO PLANO</label>
+                  <input type="text" required className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
                 </div>
-                <div className="flex items-center gap-3">
-                  <input type="checkbox" id="act" className="rounded bg-black border-neutral-border text-primary" checked={formData.active} onChange={e => setFormData({ ...formData, active: e.target.checked })} />
-                  <label htmlFor="act" className="text-xs font-bold text-white">Ativo no Catálogo</label>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">ORDEM DE EXIBIÇÃO</label>
+                  <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.orderIndex ?? 0} onChange={e => setFormData({ ...formData, orderIndex: parseInt(e.target.value) })} />
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-black text-slate-500 uppercase">Funcionalidades</label>
-                  <button type="button" onClick={handleAddFeature} className="text-[10px] font-black text-primary uppercase">+ Add Feature</button>
+              {/* Trimestral Section */}
+              <div className="space-y-4 pt-6 border-t border-[#1e2a22]">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TRIMESTRAL (R$ TOTAL)</label>
+                  <input type="number" required className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.priceQuarterly} onChange={e => setFormData({ ...formData, priceQuarterly: parseFloat(e.target.value) })} />
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">DISPLAY MENSAL (R$)</label>
+                    <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.monthlyPriceQuarterly || ''} onChange={e => setFormData({ ...formData, monthlyPriceQuarterly: parseFloat(e.target.value) })} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">PARCELAS MÁX.</label>
+                    <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.installmentsQuarterly || ''} onChange={e => setFormData({ ...formData, installmentsQuarterly: parseInt(e.target.value) })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TAXA TRÁFEGO (%)</label>
+                    <input type="number" step="0.1" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.trafficFeePercentQuarterly || ''} onChange={e => setFormData({ ...formData, trafficFeePercentQuarterly: parseFloat(e.target.value) })} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">CRÉDITO ADS (R$)</label>
+                    <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.adCreditQuarterly || ''} onChange={e => setFormData({ ...formData, adCreditQuarterly: parseFloat(e.target.value) })} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Semestral Section */}
+              <div className="space-y-4 pt-6 mt-6 border-t border-[#1e2a22]">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">SEMESTRAL (R$ TOTAL)</label>
+                  <input type="number" required className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.priceSemiannual} onChange={e => setFormData({ ...formData, priceSemiannual: parseFloat(e.target.value) })} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">DISPLAY MENSAL (R$)</label>
+                    <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.monthlyPriceSemiannual || ''} onChange={e => setFormData({ ...formData, monthlyPriceSemiannual: parseFloat(e.target.value) })} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">PARCELAS MÁX.</label>
+                    <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.installmentsSemiannual || ''} onChange={e => setFormData({ ...formData, installmentsSemiannual: parseInt(e.target.value) })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TAXA TRÁFEGO (%)</label>
+                    <input type="number" step="0.1" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.trafficFeePercentSemiannual || ''} onChange={e => setFormData({ ...formData, trafficFeePercentSemiannual: parseFloat(e.target.value) })} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">CRÉDITO ADS (R$)</label>
+                    <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.adCreditSemiannual || ''} onChange={e => setFormData({ ...formData, adCreditSemiannual: parseFloat(e.target.value) })} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Anual Section matching screenshot exactly */}
+              <div className="space-y-4 pt-6 mt-6 border-t border-[#1e2a22]">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">ANUAL (R$ TOTAL)</label>
+                  <input type="number" required className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.priceYearly} onChange={e => setFormData({ ...formData, priceYearly: parseFloat(e.target.value) })} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">DISPLAY MENSAL (R$)</label>
+                    <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.monthlyPriceYearly || ''} onChange={e => setFormData({ ...formData, monthlyPriceYearly: parseFloat(e.target.value) })} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">PARCELAS MÁX.</label>
+                    <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.installmentsYearly || ''} onChange={e => setFormData({ ...formData, installmentsYearly: parseInt(e.target.value) })} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TAXA TRÁFEGO (%)</label>
+                    <input type="number" step="0.1" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.trafficFeePercentYearly || ''} onChange={e => setFormData({ ...formData, trafficFeePercentYearly: parseFloat(e.target.value) })} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">CRÉDITO ADS (R$)</label>
+                    <input type="number" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.adCreditYearly || ''} onChange={e => setFormData({ ...formData, adCreditYearly: parseFloat(e.target.value) })} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 mt-6 border-t border-[#1e2a22]">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest">DESCONTO PAGAMENTO À VISTA (%)</label>
+                  <input type="number" min="0" max="100" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-rose-500 focus:outline-none transition-colors" value={formData.discountUpfrontPercent || 0} onChange={e => setFormData({ ...formData, discountUpfrontPercent: parseFloat(e.target.value) })} />
+                  <p className="text-[10px] text-slate-500 mt-1">Percentual de desconto aplicado apenas na opção "Pagar à Vista".</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">DESCRIÇÃO MENSAGENS (EX: "COBRADO A CADA 3 MESES")</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <input type="text" placeholder="Tri" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-xs text-white focus:border-[#00D189] focus:outline-none transition-colors text-center" value={formData.descriptionQuarterly || ''} onChange={e => setFormData({ ...formData, descriptionQuarterly: e.target.value })} />
+                    <input type="text" placeholder="Sem" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-xs text-white focus:border-[#00D189] focus:outline-none transition-colors text-center" value={formData.descriptionSemiannual || ''} onChange={e => setFormData({ ...formData, descriptionSemiannual: e.target.value })} />
+                    <input type="text" placeholder="Anu" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-xs text-white focus:border-[#00D189] focus:outline-none transition-colors text-center" value={formData.descriptionYearly || ''} onChange={e => setFormData({ ...formData, descriptionYearly: e.target.value })} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-4">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">OBSERVAÇÕES</label>
+                <textarea className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors h-28 resize-none" value={formData.observations || ''} onChange={e => setFormData({ ...formData, observations: e.target.value })} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="relative flex items-center justify-center">
+                    <input type="checkbox" id="rec" className="w-5 h-5 rounded border border-[#1e2a22] bg-[#050505] appearance-none checked:bg-[#00D189] checked:border-[#00D189] transition-colors cursor-pointer" checked={formData.recommended} onChange={e => setFormData({ ...formData, recommended: e.target.checked })} />
+                    {formData.recommended && <span className="material-symbols-outlined text-black text-sm absolute pointer-events-none">check</span>}
+                  </div>
+                  <label htmlFor="rec" className="text-sm font-bold text-white cursor-pointer select-none">Recomendado</label>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="relative flex items-center justify-center">
+                    <input type="checkbox" id="act" className="w-5 h-5 rounded border border-[#1e2a22] bg-[#050505] appearance-none checked:bg-[#00D189] checked:border-[#00D189] transition-colors cursor-pointer" checked={formData.active} onChange={e => setFormData({ ...formData, active: e.target.checked })} />
+                    {formData.active && <span className="material-symbols-outlined text-black text-sm absolute pointer-events-none">check</span>}
+                  </div>
+                  <label htmlFor="act" className="text-sm font-bold text-white cursor-pointer select-none">Ativo no Catálogo</label>
+                </div>
+              </div>
+
+
+              <div className="space-y-4 pt-6 border-t border-[#1e2a22]">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">FUNCIONALIDADES</label>
+                  <button type="button" onClick={handleAddFeature} className="text-[10px] font-black text-[#00D189] uppercase tracking-widest hover:text-[#00b375] transition-colors">+ ADD FEATURE</button>
+                </div>
+
                 {formData.features?.map((feat, idx) => (
-                  <div key={idx} className="flex gap-2">
-                    <input type="text" placeholder="Ex: Pedidos Ilimitados" className="flex-1 bg-black/40 border-neutral-border rounded-xl px-4 py-2 text-xs text-white" value={feat} onChange={e => handleFeatureChange(idx, e.target.value)} />
-                    <button type="button" onClick={() => handleRemoveFeature(idx)} className="text-slate-500 hover:text-rose-500"><span className="material-symbols-outlined text-lg">remove_circle</span></button>
+                  <div key={idx} className="flex gap-3 items-center">
+                    <input type="text" placeholder="Ex: Pedidos Ilimitados" className="flex-1 bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={feat} onChange={e => handleFeatureChange(idx, e.target.value)} />
+                    <button type="button" onClick={() => handleRemoveFeature(idx)} className="text-[#a1a1aa] hover:text-white transition-colors shrink-0 flex items-center justify-center p-2">
+                      <span className="material-symbols-outlined text-xl">remove_circle_outline</span>
+                    </button>
                   </div>
                 ))}
               </div>
 
-              <div className="flex justify-end gap-4 pt-6">
-                <button type="button" onClick={() => setShowModal(false)} className="px-6 py-3 font-bold text-slate-500">Cancelar</button>
-                <button type="submit" className="px-10 py-3 bg-primary text-neutral-950 rounded-xl font-black shadow-lg shadow-primary/20">Salvar Plano</button>
+              <div className="flex items-center justify-end gap-8 pt-8 mt-4">
+                <button type="button" onClick={() => setShowModal(false)} className="text-[#a1a1aa] font-bold text-lg hover:text-white transition-colors">Cancelar</button>
+                <button type="submit" className="px-8 py-3.5 bg-[#00D189] text-[#050505] rounded-xl font-bold text-lg hover:bg-[#00b375] shadow-[0_0_20px_rgba(0,209,137,0.3)] transition-all">Salvar Plano</button>
               </div>
             </form>
           </div>

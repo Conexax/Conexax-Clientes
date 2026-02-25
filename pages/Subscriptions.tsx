@@ -58,19 +58,20 @@ const Subscriptions: React.FC = () => {
             </header>
 
             {/* Filters */}
-            <div className="flex flex-col md:flex-row gap-4 glass-panel p-4 rounded-xl">
+            <div className="flex flex-col md:flex-row gap-4 glass-panel p-5 rounded-3xl border border-[#1e2a22] bg-[#050505]/40 shadow-xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
                 <div className="flex-1 relative">
-                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">search</span>
+                    <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-lg">search</span>
                     <input
                         type="text"
                         placeholder="Buscar por cliente ou ID..."
-                        className="w-full bg-black/20 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-white focus:outline-none focus:border-primary/50 transition-colors"
+                        className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl pl-12 pr-4 py-3 text-sm text-white focus:outline-none focus:border-primary transition-colors"
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                     />
                 </div>
                 <select
-                    className="bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-primary/50"
+                    className="bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary transition-colors cursor-pointer appearance-none min-w-[200px]"
                     value={filterStatus}
                     onChange={e => setFilterStatus(e.target.value)}
                 >
@@ -84,50 +85,50 @@ const Subscriptions: React.FC = () => {
             </div>
 
             {/* Table */}
-            <div className="glass-panel overflow-hidden rounded-2xl">
+            <div className="glass-panel overflow-hidden rounded-3xl border border-[#1e2a22] shadow-2xl relative">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
-                        <thead className="bg-white/5">
+                        <thead className="bg-[#050505] border-b border-[#1e2a22]">
                             <tr>
-                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Cliente / Lojista</th>
-                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Plano/Ciclo</th>
-                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Valor</th>
-                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Próx. Vencimento</th>
-                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Assinatura</th>
-                                <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Ações</th>
+                                <th className="p-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Cliente / Lojista</th>
+                                <th className="p-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Plano/Ciclo</th>
+                                <th className="p-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Valor</th>
+                                <th className="p-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Próx. Vencimento</th>
+                                <th className="p-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Assinatura</th>
+                                <th className="p-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Ações</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-white/5 text-sm cursor-pointer">
+                        <tbody className="divide-y divide-[#1e2a22] text-sm bg-[#000000]/40">
                             {filteredSubs.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                                    <td colSpan={6} className="p-8 text-center text-slate-500 font-bold italic">
                                         Nenhuma assinatura encontrada.
                                     </td>
                                 </tr>
                             ) : (
                                 filteredSubs.map(sub => (
-                                    <tr key={sub.id} className="hover:bg-white/5 transition-colors">
+                                    <tr key={sub.id} className="hover:bg-[#050505] transition-colors group">
                                         <td className="p-4">
-                                            <div className="font-bold text-white">{sub.localTenant?.name || sub.localUser?.name || '---'}</div>
-                                            <div className="text-xs text-slate-500">{sub.localUser?.email || '---'}</div>
-                                            <div className="text-[10px] text-slate-600 font-mono mt-1">{sub.customer}</div>
+                                            <div className="font-bold text-white group-hover:text-primary transition-colors">{sub.localTenant?.name || sub.localUser?.name || '---'}</div>
+                                            <div className="text-[10px] font-mono tracking-widest uppercase text-slate-500">{sub.localUser?.email || '---'}</div>
+                                            <div className="text-[10px] text-slate-600 font-mono mt-1">ID: {sub.customer.split('_')[1] || sub.customer}</div>
                                         </td>
                                         <td className="p-4">
-                                            <div className="text-slate-300 font-bold">{sub.description || 'Plano Conexx'}</div>
-                                            <div className="text-[10px] text-primary font-black uppercase tracking-tighter">{sub.cycle}</div>
+                                            <div className="text-slate-300 font-bold text-sm tracking-tight">{sub.description || 'Plano Conexx'}</div>
+                                            <div className="text-[10px] text-primary font-black uppercase tracking-widest mt-0.5">{sub.cycle}</div>
                                         </td>
-                                        <td className="p-4 font-mono text-emerald-400 font-bold">
-                                            R$ {sub.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                        <td className="p-4 font-mono text-emerald-400 font-black text-base tracking-tight">
+                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sub.value)}
                                         </td>
-                                        <td className="p-4 text-slate-300 font-medium">
+                                        <td className="p-4 text-slate-300 font-bold text-xs">
                                             {new Date(sub.nextDueDate).toLocaleDateString('pt-BR')}
                                         </td>
                                         <td className="p-4">
                                             <div className="flex flex-col items-center gap-1">
-                                                <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest 
-                                                    ${sub.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400' :
-                                                        sub.status === 'OVERDUE' ? 'bg-rose-500/10 text-rose-400' :
-                                                            'bg-slate-500/10 text-slate-400'}`}>
+                                                <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-widest border 
+                                                    ${sub.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                                                        sub.status === 'OVERDUE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                                            'bg-slate-500/10 text-slate-400 border-slate-500/20'}`}>
                                                     {sub.status === 'ACTIVE' ? 'Ativa' :
                                                         sub.status === 'OVERDUE' ? 'Atrasada' :
                                                             sub.status === 'PENDING' ? 'Pendente' : sub.status}
@@ -135,9 +136,9 @@ const Subscriptions: React.FC = () => {
                                             </div>
                                         </td>
                                         <td className="p-4 text-right">
-                                            <Link to={`/assinaturas/${sub.customer}`} className="flex items-center justify-end gap-1 text-primary hover:text-white transition-all group">
-                                                <span className="text-[10px] font-black uppercase underline decoration-primary/30 group-hover:decoration-primary">Ver Tudo</span>
-                                                <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                                            <Link to={`/assinaturas/${sub.customer}`} className="px-3 py-2 bg-white/5 border border-white/5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white hover:bg-primary/20 hover:text-primary hover:border-primary/30 transition-all inline-flex items-center gap-1.5 float-right">
+                                                <span>Ver Tudo</span>
+                                                <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
                                             </Link>
                                         </td>
                                     </tr>

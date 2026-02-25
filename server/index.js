@@ -6,12 +6,16 @@ import { getAsaasClient, getOrCreateAsaasCustomer, createAsaasSubscription } fro
 import { startSyncJob } from './services/syncScheduler.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireSubscription } from './middleware/auth.js';
+import analyticsRoutes from './routes/analytics.js';
 
 // Load server env vars from .env.server if present (local development)
 dotenv.config({ path: '.env.server' });
 
 const app = express();
 app.use(express.json());
+
+// Mount the analytics API
+app.use('/api/analytics', analyticsRoutes);
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.VITE_SUPABASE_KEY || process.env.SUPABASE_KEY;
@@ -165,8 +169,9 @@ app.post('/api/admin/metricas/yampi/sync', async (req, res) => {
     const results = [];
     for (const tenant of tenantsToSync) {
       try {
-        const result = await YampiSyncService.syncOrders(tenant);
-        results.push({ tenant: tenant.name, success: true, ...result });
+        const orderResult = await YampiSyncService.syncOrders(tenant);
+        const productResult = await YampiSyncService.syncProducts(tenant);
+        results.push({ tenant: tenant.name, success: true, orders: orderResult, products: productResult });
       } catch (err) {
         console.error(`Failed to sync ${tenant.name}:`, err.message);
         results.push({ tenant: tenant.name, success: false, error: err.message });
@@ -1196,11 +1201,11 @@ app.get('/api/admin/metricas/yampi/overview', async (req, res) => {
     // We'll fetch the aggregated data directly if we don't need individual rows for charts
     // Actually, for charts we need daily data. 
 
-    let baseQuery = db.from('orders').select('status, is_canceled, is_refunded, gross_value, net_value, order_date');
+    let baseQuery = db.from('orders').select('status, raw_status_alias, value, date');
 
     if (tenantId) baseQuery = baseQuery.eq('tenant_id', tenantId);
-    if (startDate) baseQuery = baseQuery.gte('order_date', startDate);
-    if (endDate) baseQuery = baseQuery.lte('order_date', endDate);
+    if (startDate) baseQuery = baseQuery.gte('date', startDate);
+    if (endDate) baseQuery = baseQuery.lte('date', endDate);
 
     // If there might be thousands of orders, we should use a recursive fetch or RPC
     // For now, let's fetch in chunks if needed or trust 1000 is enough for a typical dashboard view (daily/weekly)
@@ -1223,20 +1228,20 @@ app.get('/api/admin/metricas/yampi/overview', async (req, res) => {
 
     orders.forEach(o => {
       const isPaid = o.status === 'APROVADO';
-      const isCanceled = o.is_canceled || o.status === 'CANCELADO';
-      const isRefunded = o.is_refunded;
+      const isCanceled = o.status === 'CANCELADO';
+      const isRefunded = o.raw_status_alias === 'refunded';
 
       if (isCanceled) stats.canceled++;
       if (isRefunded) stats.refunded++;
 
       if (isPaid && !isCanceled) {
         stats.ordersPaid++;
-        stats.grossRevenue += Number(o.gross_value || 0);
-        stats.netRevenue += Number(o.net_value || 0);
+        stats.grossRevenue += Number(o.value || 0);
+        stats.netRevenue += Number(o.value || 0);
 
-        const dateKey = (o.order_date || '').split('T')[0];
+        const dateKey = (o.date || '').split('T')[0];
         if (dateKey) {
-          dailyRevenue[dateKey] = (dailyRevenue[dateKey] || 0) + Number(o.gross_value || 0);
+          dailyRevenue[dateKey] = (dailyRevenue[dateKey] || 0) + Number(o.value || 0);
         }
       }
     });

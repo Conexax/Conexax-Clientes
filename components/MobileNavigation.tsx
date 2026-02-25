@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-const MobileNavigation: React.FC = () => {
+const MobileNavigation: React.FC<{ onOpenMenu: () => void }> = ({ onOpenMenu }) => {
     const navigate = useNavigate();
     const location = useLocation();
     // Simple state to track active tab based on path
@@ -23,11 +23,11 @@ const MobileNavigation: React.FC = () => {
                 </button>
 
                 <button
-                    onClick={() => navigate('/billing')}
-                    className={`flex flex-col items-center justify-center p-2 w-full transition-colors ${isActive('/billing') ? 'text-emerald-500' : 'text-slate-500 hover:text-slate-300'}`}
+                    onClick={() => navigate('/plans')}
+                    className={`flex flex-col items-center justify-center p-2 w-full transition-colors ${isActive('/plans') ? 'text-emerald-500' : 'text-slate-500 hover:text-slate-300'}`}
                 >
-                    <span className={`material-symbols-outlined transition-all ${isActive('/billing') ? 'text-2xl font-filled' : 'text-2xl'}`}>
-                        payments
+                    <span className={`material-symbols-outlined transition-all ${isActive('/plans') ? 'text-2xl font-filled' : 'text-2xl'}`}>
+                        credit_card
                     </span>
                     <span className="text-[10px] uppercase font-black tracking-widest mt-1">
                         Planos
@@ -35,14 +35,14 @@ const MobileNavigation: React.FC = () => {
                 </button>
 
                 <button
-                    onClick={() => navigate('/settings')}
-                    className={`flex flex-col items-center justify-center p-2 w-full transition-colors ${isActive('/settings') ? 'text-emerald-500' : 'text-slate-500 hover:text-slate-300'}`}
+                    onClick={onOpenMenu}
+                    className="flex flex-col items-center justify-center p-2 w-full transition-colors text-slate-500 hover:text-emerald-500"
                 >
-                    <span className={`material-symbols-outlined transition-all ${isActive('/settings') ? 'text-2xl font-filled' : 'text-2xl'}`}>
-                        settings
+                    <span className="material-symbols-outlined transition-all text-2xl">
+                        menu
                     </span>
                     <span className="text-[10px] uppercase font-black tracking-widest mt-1">
-                        Ajustes
+                        Menu
                     </span>
                 </button>
             </div>

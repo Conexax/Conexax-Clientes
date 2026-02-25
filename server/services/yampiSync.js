@@ -49,11 +49,10 @@ function mapYampiOrder(yo, tenantId) {
     return {
         tenant_id: tenantId,
         external_id: String(yo.id || yo.number),
-        client_name: `${customer.first_name || 'Cliente'} ${customer.last_name || ''}`.trim(),
-        client_email: customer.email || '',
-        product_name: yo.items?.data?.[0]?.product_name || yo.items?.data?.[0]?.name || 'Produto',
-        order_date: yo.created_at?.date || yo.created_at || new Date().toISOString(),
-        paid_at: yo.paid_at?.date || yo.paid_at || null,
+        client: `${customer.first_name || 'Cliente'} ${customer.last_name || ''}`.trim(),
+        email: customer.email || '',
+        product: yo.items?.data?.[0]?.product_name || yo.items?.data?.[0]?.name || 'Produto',
+        date: yo.created_at?.date || yo.created_at || new Date().toISOString(),
         status: status,
         payment_method: (() => {
             const method = yo.payment_method || yo.payments?.data?.[0]?.payment_method_id || 'unknown';
@@ -63,15 +62,10 @@ function mapYampiOrder(yo, tenantId) {
             if (m.includes('billet') || m.includes('boleto')) return 'Boleto';
             return 'Cartão';
         })(),
-        total_value: grossValue, // Keeping for backward compatibility
-        gross_value: grossValue,
-        net_value: netValue,
-        discount_value: discountValue,
-        tax_value: taxValue,
-        is_refunded: isRefunded,
-        is_canceled: isCanceled,
+        value: grossValue,
         coupon_code: yo.promocode?.data?.code || yo.promotions?.data?.[0]?.code || null,
-        raw_data: yo
+        raw_status_alias: statusAlias,
+        delivered: statusAlias === 'delivered'
     };
 }
 
@@ -167,14 +161,13 @@ export const YampiSyncService = {
             // a single select with all rows is fine for moderately sized businesses.
             const { data: revenueData, error: revErr } = await supabase
                 .from('orders')
-                .select('gross_value')
+                .select('value')
                 .eq('tenant_id', tenant.id)
-                .eq('status', 'APROVADO')
-                .is('is_canceled', false);
+                .eq('status', 'APROVADO');
 
             if (revErr) throw revErr;
 
-            const totalRevenue = (revenueData || []).reduce((sum, o) => sum + Number(o.gross_value || 0), 0);
+            const totalRevenue = (revenueData || []).reduce((sum, o) => sum + Number(o.value || 0), 0);
 
             await supabase.from('tenants').update({
                 cached_gross_revenue: totalRevenue,
@@ -186,6 +179,121 @@ export const YampiSyncService = {
 
         } catch (err) {
             console.error(`[YampiSync] Error for tenant ${alias}:`, err.response?.data || err.message);
+            throw err;
+        }
+    },
+
+    /**
+     * Synchronizes all products for a specific tenant.
+     * Uses upsert to create or update existing products based on external sku/id.
+     */
+    async syncProducts(tenant) {
+        const alias = tenant.yampi_alias || tenant.yampiAlias;
+        const token = tenant.yampi_token || tenant.yampiToken;
+        const secret = tenant.yampi_secret || tenant.yampiSecret;
+        const oauthToken = tenant.yampi_oauth_access_token || tenant.yampiOauthAccessToken;
+
+        if (!alias) {
+            throw new Error(`Tenant ${tenant.id} missing Yampi Alias.`);
+        }
+
+        if (!oauthToken && (!token || !secret)) {
+            throw new Error(`Tenant ${tenant.id} missing Yampi credentials.`);
+        }
+
+        console.log(`[YampiSync] Starting paginated products sync for ${tenant.name} (${alias})...`);
+
+        const apiBase = `https://api.dooki.com.br/v2/${alias}`;
+
+        const headers = {
+            'Alias': alias,
+            'Content-Type': 'application/json'
+        };
+
+        if (oauthToken) {
+            headers['Authorization'] = `Bearer ${oauthToken}`;
+        } else {
+            headers['User-Token'] = token;
+            headers['User-Secret-Key'] = secret;
+        }
+
+        let page = 1;
+        let hasMore = true;
+        let totalSynced = 0;
+
+        try {
+            while (hasMore && page <= 5) { // sync up to 5 pages (500 products)
+                console.log(`[YampiSync Products] Fetching page ${page}...`);
+                const response = await axios.get(`${apiBase}/catalog/products`, {
+                    params: {
+                        limit: 100,
+                        page: page
+                    },
+                    headers,
+                    timeout: 20000
+                });
+
+                const rawProducts = response.data?.data || [];
+                const meta = response.data?.meta?.pagination || {};
+
+                if (rawProducts.length === 0) {
+                    hasMore = false;
+                    break;
+                }
+
+                // Map products
+                const dbProducts = rawProducts.map(p => ({
+                    tenant_id: tenant.id,
+                    // Use a generated unique ID if inserting, but we rely on sku for conflict resolution usually.
+                    // Supabase requires UUID for id. Let's use yampi_product_id instead to match against.
+                    name: p.name || p.product_name || 'Produto',
+                    sku: p.sku || p.id,
+                    description: p.description || '',
+                    price: parseFloat(p.price || p.value_total || 0) || 0,
+                    active: p.active ?? true,
+                    operation_type: 'Venda',
+                    yampi_product_id: typeof p.id === 'number' ? p.id : parseInt(p.id) || 0,
+                    images: p.images?.data?.map(i => i.url) || []
+                }));
+
+                // Upsert products. Since our primary key is `id` (uuid), we need to ensure we don't create duplicates.
+                // We'll query first or use a unique constraint if one existed.
+                // Assuming we don't have a unique constraint on (tenant_id, yampi_product_id), we'll upsert manually.
+                for (const prod of dbProducts) {
+                    const { data: existing } = await supabase.from('products')
+                        .select('id')
+                        .eq('tenant_id', tenant.id)
+                        .eq('yampi_product_id', prod.yampi_product_id)
+                        .maybeSingle();
+
+                    if (existing) {
+                        prod.id = existing.id; // Map back to existing UUID
+                    } // else Supabase generates new UUID on insert
+
+                    const { error } = await supabase.from('products').upsert(prod, {
+                        onConflict: 'id',
+                        ignoreDuplicates: false
+                    });
+
+                    if (error) {
+                        console.error(`[YampiSync Products] Upsert failed for ${prod.sku}`, error.message);
+                    } else {
+                        totalSynced++;
+                    }
+                }
+
+                if (meta.current_page >= meta.total_pages || rawProducts.length < 100) {
+                    hasMore = false;
+                } else {
+                    page++;
+                }
+            }
+
+            console.log(`[YampiSync Products] Finished. Synced ${totalSynced} products.`);
+            return { count: totalSynced };
+
+        } catch (err) {
+            console.error(`[YampiSync Products] Error for tenant ${alias}:`, err.response?.data || err.message);
             throw err;
         }
     }
