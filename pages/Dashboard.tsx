@@ -111,33 +111,39 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
     });
   }, [state.abandonedCheckouts, dateRange, tenantId]);
 
-  // Combined calculations for the 8-card grid
-  const totalAdsSpend = adsMetrics.metaSpend + adsMetrics.googleSpend;
-  const taxaMetaAds = adsMetrics.metaSpend * 0.0438; // 4.38% IOF standard
-  const taxaGateway = periodRevenue * 0.05; // 5% gateway/plataforma standard assumed
+  // --- Data Processing (Memoized for Performance) ---
 
-  const lucroLiquido = periodRevenue - totalAdsSpend - taxaMetaAds - taxaGateway;
+  const metrics = useMemo(() => {
+    const totalAdsSpend = adsMetrics.metaSpend + adsMetrics.googleSpend;
+    const taxaMetaAds = adsMetrics.metaSpend * 0.0438;
+    const taxaGateway = periodRevenue * 0.05;
 
-  const roas = totalAdsSpend > 0 ? periodRevenue / totalAdsSpend : 0;
-  const roi = totalAdsSpend > 0 ? lucroLiquido / totalAdsSpend : 0;
-  const margem = periodRevenue > 0 ? (lucroLiquido / periodRevenue) * 100 : 0;
+    const lucroLiquido = periodRevenue - totalAdsSpend - taxaMetaAds - taxaGateway;
+    const roas = totalAdsSpend > 0 ? periodRevenue / totalAdsSpend : 0;
+    const roi = totalAdsSpend > 0 ? lucroLiquido / totalAdsSpend : 0;
+    const margem = periodRevenue > 0 ? (lucroLiquido / periodRevenue) * 100 : 0;
 
-  // Payment method data for PieChart
-  const canonicalMethods = ['PIX', 'Cartão', 'Boleto'];
-  const colorsMap: Record<string, string> = {
-    'PIX': '#3b82f6', // blue-500
-    'Cartão': '#10b981', // emerald-500
-    'Boleto': '#f59e0b' // amber-500
-  };
-  const counts: Record<string, number> = { 'PIX': 0, 'Cartão': 0, 'Boleto': 0 };
-  approvedOrders.forEach(o => {
-    const pm = String(o.paymentMethod || '').toLowerCase();
-    if (pm.includes('pix')) counts['PIX']++;
-    else if (pm.includes('card') || pm.includes('credit') || pm.includes('cartão') || pm.includes('cartao')) counts['Cartão']++;
-    else if (pm.includes('boleto') || pm.includes('billet')) counts['Boleto']++;
-    else counts['Boleto']++; // fallback
-  });
-  const pieData = canonicalMethods.map(name => ({ name, value: counts[name] || 0, color: colorsMap[name] })).filter(d => d.value > 0);
+    // Payment method data for PieChart
+    const canonicalMethods = ['PIX', 'Cartão', 'Boleto'];
+    const colorsMap: Record<string, string> = {
+      'PIX': '#3b82f6',
+      'Cartão': '#10b981',
+      'Boleto': '#f59e0b'
+    };
+    const counts: Record<string, number> = { 'PIX': 0, 'Cartão': 0, 'Boleto': 0 };
+    approvedOrders.forEach(o => {
+      const pm = String(o.paymentMethod || '').toLowerCase();
+      if (pm.includes('pix')) counts['PIX']++;
+      else if (pm.includes('card') || pm.includes('credit') || pm.includes('cartão') || pm.includes('cartao')) counts['Cartão']++;
+      else if (pm.includes('boleto') || pm.includes('billet')) counts['Boleto']++;
+      else counts['Boleto']++;
+    });
+    const pieData = canonicalMethods.map(name => ({ name, value: counts[name] || 0, color: colorsMap[name] })).filter(d => d.value > 0);
+
+    return { totalAdsSpend, lucroLiquido, roas, roi, margem, pieData, taxaMetaAds, taxaGateway };
+  }, [adsMetrics, periodRevenue, approvedOrders]);
+
+  const { totalAdsSpend, lucroLiquido, roas, roi, margem, pieData, taxaMetaAds, taxaGateway } = metrics;
 
   // Grouping Revenue by Date (for the Main Chart)
   const chartDataMap = useMemo(() => {

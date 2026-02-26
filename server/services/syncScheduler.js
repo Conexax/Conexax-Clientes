@@ -164,14 +164,11 @@ async function checkExpiringPlans() {
 
 async function autoGenerateWeeklyFees() {
   const now = new Date();
-  if (now.getDay() !== 1) return; // Só roda de segunda-feira
 
-  console.log('[SyncScheduler] Checking/Auto-generating weekly fees for last week...');
-
+  // Calculate current week (Monday to Sunday)
+  const day = now.getDay() || 7; // 1 (Seg) a 7 (Dom)
   const d = new Date(now);
-  d.setDate(d.getDate() - 7); // Volta 7 dias para cair na semana anterior
-  const day = d.getDay() || 7;
-  if (day !== 1) d.setDate(d.getDate() - (day - 1)); // Força para a segunda-feira daquela semana
+  d.setDate(now.getDate() - (day - 1)); // Segunda-feira desta semana
   d.setHours(0, 0, 0, 0);
   const weekStartStr = d.toISOString().split('T')[0];
 
@@ -180,82 +177,109 @@ async function autoGenerateWeeklyFees() {
   sunday.setHours(23, 59, 59, 999);
   const weekEndStr = sunday.toISOString().split('T')[0];
 
+  console.log(`[SyncScheduler] Checking/Updating weekly fees for current week: ${weekStartStr} to ${weekEndStr}`);
+
   // Fetch tenants
   const { data: tenants } = await supabase.from('tenants').select('*').eq('active', true);
   if (!tenants) return;
 
   for (const tenant of tenants) {
-    if (!tenant.company_percentage || tenant.company_percentage <= 0) continue;
-
-    // Se já geramos cobranca para este tenant nesta semana_start, ignoramos para não duplicar.
-    const { data: existing } = await supabase.from('weekly_fees')
-      .select('id')
-      .eq('tenant_id', tenant.id)
-      .eq('week_start', weekStartStr)
-      .maybeSingle();
-
-    if (existing) continue; // Já existe (seja pago, pendente, etc)
-
-    const { data: orders } = await supabase.from('orders')
-      .select('value, total_value')
-      .eq('tenant_id', tenant.id)
-      .gte('date', weekStartStr)
-      .lte('date', weekEndStr)
-      .in('status', ['APROVADO', 'paid', 'approved', 'succes', 'COMPLETO']);
-
-    const weeklyRevenue = orders?.reduce((sum, o) => sum + (Number(o.value || o.total_value) || 0), 0) || 0;
-    const amountDue = weeklyRevenue * (tenant.company_percentage / 100);
-
-    if (amountDue <= 0) continue;
-
-    let asaasData = null;
-    let finalStatus = 'pending';
-
-    // Gerar no Asaas Diretamente
     try {
-      const { client } = await getAsaasClient();
+      if (!tenant.company_percentage || tenant.company_percentage <= 0) continue;
 
-      const { data: mapping } = await supabase.from('asaas_customers').select('asaas_customer_id').eq('user_id',
-        (await supabase.from('users').select('id').eq('tenant_id', tenant.id).limit(1).single()).data?.id
-      ).single();
+      // Check if fee already exists for this week
+      const { data: existing } = await supabase.from('weekly_fees')
+        .select('*')
+        .eq('tenant_id', tenant.id)
+        .eq('week_start', weekStartStr)
+        .maybeSingle();
 
-      if (mapping) {
-        const refData = { tenantId: tenant.id, type: 'weekly_fee', weekStart: weekStartStr };
-        const chargePayload = {
-          customer: mapping.asaas_customer_id,
-          billingType: 'BOLETO', // Default de automação
-          value: amountDue,
-          dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Vence em 2 dias
-          description: `Taxa Semanal Automática (${weekStartStr} a ${weekEndStr}) - Faturamento: R$ ${weeklyRevenue.toFixed(2)}`,
-          externalReference: JSON.stringify(refData)
-        };
-        const asaasRes = await client.post('/payments', chargePayload);
-        asaasData = asaasRes.data;
-        finalStatus = 'created';
+      // If it's already 'paid' or 'created' (sent to Asaas), we don't update revenue anymore for this week
+      // unless we want it to be perfectly real-time until the very last second.
+      // If status is 'created' or 'paid', we skip.
+      if (existing && existing.status !== 'pending') {
+        continue;
       }
-    } catch (e) {
-      console.error(`[SyncScheduler] Failed to generate Asaas for ${tenant.name}:`, e.response?.data || e.message);
+
+      const { data: orders } = await supabase.from('orders')
+        .select('value, total_value')
+        .eq('tenant_id', tenant.id)
+        .gte('date', weekStartStr)
+        .lte('date', weekEndStr)
+        .in('status', ['APROVADO', 'paid', 'approved', 'succes', 'COMPLETO']);
+
+      const weeklyRevenue = orders?.reduce((sum, o) => sum + (Number(o.value || o.total_value) || 0), 0) || 0;
+      const amountDue = weeklyRevenue * (tenant.company_percentage / 100);
+
+      if (amountDue <= 0 && !existing) continue;
+
+      let asaasData = null;
+      let finalStatus = 'pending';
+
+      // CLOSED & CHARGE Logic: Saturday after 20:00 (or any time on Saturday/Sunday if we want to force closure)
+      const isSaturdayClosure = now.getDay() === 6 && now.getHours() >= 20;
+      const isSunday = now.getDay() === 0;
+
+      if ((isSaturdayClosure || isSunday) && amountDue > 0) {
+        console.log(`[SyncScheduler] Saturday/Sunday closure for ${tenant.name}. Generating Asaas charge...`);
+        try {
+          const { client } = await getAsaasClient();
+
+          // Find a user for this tenant to get Asaas Customer ID
+          const { data: user } = await supabase.from('users').select('id').eq('tenant_id', tenant.id).limit(1).single();
+
+          if (user) {
+            const { data: mapping } = await supabase.from('asaas_customers').select('asaas_customer_id').eq('user_id', user.id).maybeSingle();
+
+            if (mapping) {
+              const refData = { tenantId: tenant.id, type: 'weekly_fee', weekStart: weekStartStr };
+              const chargePayload = {
+                customer: mapping.asaas_customer_id,
+                billingType: 'BOLETO',
+                value: amountDue,
+                dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                description: `Taxa Semanal ConexaX (${weekStartStr} a ${weekEndStr}) - Faturamento: R$ ${weeklyRevenue.toFixed(2)}`,
+                externalReference: JSON.stringify(refData)
+              };
+              const asaasRes = await client.post('/payments', chargePayload);
+              asaasData = asaasRes.data;
+              finalStatus = 'created';
+            } else {
+              console.warn(`[SyncScheduler] No Asaas mapping for user ${user.id} of tenant ${tenant.name}`);
+            }
+          }
+        } catch (e) {
+          console.error(`[SyncScheduler] Failed to generate Asaas for ${tenant.name}:`, e.response?.data || e.message);
+        }
+      }
+
+      const payload = {
+        tenant_id: tenant.id,
+        week_start: weekStartStr,
+        week_end: weekEndStr,
+        revenue_week: weeklyRevenue,
+        percent_applied: tenant.company_percentage,
+        amount_due: amountDue,
+        status: finalStatus,
+        updated_at: new Date().toISOString()
+      };
+
+      if (asaasData) {
+        payload.asaas_payment_id = asaasData.id;
+        payload.asaas_invoice_url = asaasData.invoiceUrl || asaasData.bankSlipUrl || '';
+        payload.due_date = asaasData.dueDate;
+      }
+
+      if (existing) {
+        await supabase.from('weekly_fees').update(payload).eq('id', existing.id);
+        console.log(`[SyncScheduler] Local Fee updated for ${tenant.name} - R$ ${amountDue.toFixed(2)} (Status: ${finalStatus})`);
+      } else {
+        await supabase.from('weekly_fees').insert(payload);
+        console.log(`[SyncScheduler] Local Fee created for ${tenant.name} - R$ ${amountDue.toFixed(2)} (Status: ${finalStatus})`);
+      }
+    } catch (err) {
+      console.error(`[SyncScheduler] Critical error in autoGenerateWeeklyFees for ${tenant.name}:`, err.message);
     }
-
-    const payload = {
-      tenant_id: tenant.id,
-      week_start: weekStartStr,
-      week_end: weekEndStr,
-      revenue_week: weeklyRevenue,
-      percent_applied: tenant.company_percentage,
-      amount_due: amountDue,
-      status: finalStatus,
-      updated_at: new Date().toISOString()
-    };
-
-    if (asaasData) {
-      payload.asaas_payment_id = asaasData.id;
-      payload.asaas_invoice_url = asaasData.invoiceUrl || asaasData.bankSlipUrl || '';
-      payload.due_date = asaasData.dueDate;
-    }
-
-    await supabase.from('weekly_fees').insert(payload);
-    console.log(`[SyncScheduler] Auto Fee generated for ${tenant.name} - R$ ${amountDue.toFixed(2)}`);
   }
 }
 

@@ -346,8 +346,9 @@ const IntegrationsTab = ({ tenantId }: { tenantId: string }) => {
                 {expandedCard === 'ga4' && (
                     <div className="p-6 pt-0 border-t border-white/5 mt-2 space-y-4">
                         <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-slate-500 uppercase">Measurement ID</label>
-                            <input type="text" placeholder="G-XXXXXX" className="w-full bg-[#050505] border border-white/5 rounded-xl px-4 py-3 text-sm text-slate-300 font-mono focus:outline-none focus:border-blue-400/50 transition-colors" value={formData.ga4MeasurementId || ''} onChange={e => setFormData({ ...formData, ga4MeasurementId: e.target.value })} />
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Property ID (GA4)</label>
+                            <input type="text" placeholder="123456789 (ID Numérico)" className="w-full bg-[#050505] border border-white/5 rounded-xl px-4 py-3 text-sm text-slate-300 font-mono focus:outline-none focus:border-blue-400/50 transition-colors" value={formData.ga4MeasurementId || ''} onChange={e => setFormData({ ...formData, ga4MeasurementId: e.target.value })} />
+                            <p className="text-[9px] text-slate-600">O Google Analytics 4 exige o <strong>ID da Propriedade</strong> (número), não o ID de Medição (G-XXX).</p>
                         </div>
                         <div className="space-y-2">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Credentials JSON (Service Account)</label>

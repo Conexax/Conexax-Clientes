@@ -8,8 +8,8 @@ const MobileNavigation: React.FC<{ onOpenMenu: () => void }> = ({ onOpenMenu }) 
     const isActive = (path: string) => location.pathname === path;
 
     return (
-        <div className="md:hidden fixed bottom-0 left-0 right-0 h-[safe-area-inset-bottom] bg-[#0A0A0A] border-t border-white/5 z-50 pb-[env(safe-area-inset-bottom)]">
-            <div className="flex justify-around items-center h-16">
+        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A] border-t border-white/5 z-50 px-2 pb-[env(safe-area-inset-bottom,16px)]">
+            <div className="flex justify-around items-center h-16 mb-1">
                 <button
                     onClick={() => navigate('/')}
                     className={`flex flex-col items-center justify-center p-2 w-full transition-colors ${isActive('/') ? 'text-emerald-500' : 'text-slate-500 hover:text-slate-300'}`}

@@ -7,6 +7,9 @@ import { startSyncJob } from './services/syncScheduler.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireSubscription } from './middleware/auth.js';
 import analyticsRoutes from './routes/analytics.js';
+import pushRoutes from './routes/push.js';
+import { PushReporter } from './services/pushReporter.js';
+import { notifyEvent } from './services/notificationService.js';
 
 // Load server env vars from .env.server if present (local development)
 dotenv.config({ path: '.env.server' });
@@ -16,6 +19,7 @@ app.use(express.json());
 
 // Mount the analytics API
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/push', pushRoutes);
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.VITE_SUPABASE_KEY || process.env.SUPABASE_KEY;
@@ -171,7 +175,23 @@ app.post('/api/admin/metricas/yampi/sync', async (req, res) => {
       try {
         const orderResult = await YampiSyncService.syncOrders(tenant);
         const productResult = await YampiSyncService.syncProducts(tenant);
-        results.push({ tenant: tenant.name, success: true, orders: orderResult, products: productResult });
+        const couponResult = await YampiSyncService.syncCoupons(tenant);
+        const abResult = await YampiSyncService.syncAbandonedCheckouts(tenant);
+        const domainResult = await YampiSyncService.syncDomains(tenant);
+        const influencerResult = await YampiSyncService.syncInfluencers(tenant);
+        const commResult = await YampiSyncService.syncCommSettings(tenant);
+
+        results.push({
+          tenant: tenant.name,
+          success: true,
+          orders: orderResult,
+          products: productResult,
+          coupons: couponResult,
+          abandoned: abResult,
+          domains: domainResult,
+          influencers: influencerResult,
+          commSettings: commResult
+        });
       } catch (err) {
         console.error(`Failed to sync ${tenant.name}:`, err.message);
         results.push({ tenant: tenant.name, success: false, error: err.message });
@@ -404,6 +424,130 @@ app.post('/api/asaas/subscribe', async (req, res, next) => {
   }
 });
 
+// --- COUPONS & INFLUENCERS (BI-DIRECTIONAL YAMPI) ---
+
+/**
+ * POST /api/coupons
+ * Creates a coupon in Yampi and then in our DB.
+ */
+app.post('/api/coupons', async (req, res) => {
+  try {
+    const { tenantId, code, type, value, usageLimit } = req.body;
+    const db = supabaseAdmin || supabase;
+
+    const { data: tenant } = await db.from('tenants').select('*').eq('id', tenantId).single();
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found.' });
+
+    // 1. Create on Yampi
+    try {
+      await YampiSyncService.createCoupon(tenant, { code, type, value, usageLimit });
+    } catch (yampiErr) {
+      console.error('[Coupons] Yampi Create Failed:', yampiErr.message);
+      // We'll proceed to save locally if the error is just "already exists" but usually better to stop
+      if (!yampiErr.message.includes('already exists')) {
+        return res.status(400).json({ error: `Yampi API Error: ${yampiErr.message}` });
+      }
+    }
+
+    // 2. Save in local DB
+    const { data: coupon, error } = await db.from('coupons').upsert({
+      tenant_id: tenantId,
+      code,
+      type,
+      value,
+      active: true,
+      usage_limit: usageLimit || null
+    }, { onConflict: 'tenant_id, code' }).select().single();
+
+    if (error) throw error;
+    res.json(coupon);
+  } catch (err) {
+    console.error('[Coupons] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/influencers
+ * Creates a coupon in Yampi for the influencer and then records the influencer.
+ */
+app.post('/api/influencers', async (req, res) => {
+  try {
+    const { tenantId, name, couponCode, commissionRate } = req.body;
+    const db = supabaseAdmin || supabase;
+
+    const { data: tenant } = await db.from('tenants').select('*').eq('id', tenantId).single();
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found.' });
+
+    // 1. Create/Ensure Coupon on Yampi
+    // We assume the coupon code is unique for this influencer
+    let couponId;
+    try {
+      await YampiSyncService.createCoupon(tenant, { code: couponCode, type: 'percentage', value: 0, usageLimit: 0 });
+    } catch (e) { } // Ignore if already exists
+
+    // 2. Map Coupon in our DB
+    const { data: coupon } = await db.from('coupons').upsert({
+      tenant_id: tenantId,
+      code: couponCode,
+      type: 'percentage',
+      value: 0,
+      active: true
+    }, { onConflict: 'tenant_id, code' }).select().single();
+
+    couponId = coupon?.id;
+
+    // 3. Create Influencer
+    const { data: influencer, error } = await db.from('influencers').upsert({
+      tenant_id: tenantId,
+      name,
+      coupon_id: couponId,
+      commission_rate: commissionRate
+    }).select().single();
+
+    if (error) throw error;
+    res.json(influencer);
+  } catch (err) {
+    console.error('[Influencers] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/comm-settings
+ * Updates automation settings locally and on Yampi.
+ */
+app.post('/api/comm-settings', async (req, res) => {
+  try {
+    const { tenantId, triggerId, active, allTriggers } = req.body;
+    const db = supabaseAdmin || supabase;
+
+    const { data: tenant } = await db.from('tenants').select('*').eq('id', tenantId).single();
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found.' });
+
+    // 1. Update on Yampi
+    try {
+      await YampiSyncService.updateCommSettings(tenant, triggerId, active);
+    } catch (e) {
+      console.error('[CommSettings] Yampi Sync Error:', e.message);
+    }
+
+    // 2. Save locally
+    const { error } = await db.from('comm_settings').upsert({
+      tenant_id: tenantId,
+      active_triggers: allTriggers,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'tenant_id' });
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[CommSettings] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 /**
  * Unified Webhook Handler
  */
@@ -472,6 +616,18 @@ app.post('/api/asaas/webhook', async (req, res) => {
           billing_type: payment.billingType,
           payment_date: new Date().toISOString()
         });
+
+        // --- Notification Logic ---
+        try {
+          const { data: tenant } = await db.from('tenants').select('name').eq('id', user.tenant_id).single();
+          await notifyEvent('BILL_PAID', {
+            tenantName: tenant?.name || 'Desconhecido',
+            value: Number(payment.value)
+          });
+        } catch (e) {
+          console.error('[Webhook] Notification error', e);
+        }
+        // -------------------------
       }
     }
 
@@ -1608,6 +1764,21 @@ app.post('/api/admin/weekly-fees/:id/pay', async (req, res) => {
 
     if (updateError) throw updateError;
 
+    // --- Notification Logic ---
+    try {
+      const { data: feeData } = await db.from('weekly_fees').select('amount_due, tenant_id').eq('id', id).single();
+      if (feeData) {
+        const { data: tenant } = await db.from('tenants').select('name').eq('id', feeData.tenant_id).single();
+        await notifyEvent('BILL_PAID', {
+          tenantName: tenant?.name || 'Desconhecido',
+          value: Number(feeData.amount_due)
+        });
+      }
+    } catch (e) {
+      console.error('[Notification] Error triggering BILL_PAID', e);
+    }
+    // -------------------------
+
     return res.json({ success: true, message: 'Taxa marcada como paga.' });
 
   } catch (err) {
@@ -2092,6 +2263,37 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`Asaas proxy server listening on port ${PORT}`);
-  startSyncJob(); // Start background sync (10 mins)
+  startSyncJob();
+
+  // Start Push Reporter (Checks every 60 seconds)
+  setInterval(() => {
+    PushReporter.checkAndSendReports();
+  }, 60 * 1000);
+
+  // --- Realtime Listeners for Notifications ---
+  const db = supabaseAdmin || supabase;
+
+  // 1. New Tenant Listener
+  db.channel('public:tenants')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tenants' }, (payload) => {
+      console.log('[Realtime] New tenant detected:', payload.new.name);
+      notifyEvent('NEW_TENANT', payload.new).catch(e => console.error(e));
+    })
+    .subscribe();
+
+  // 2. Weekly Fee Listener (Bill Created)
+  db.channel('public:weekly_fees')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'weekly_fees' }, async (payload) => {
+      try {
+        const { data: tenant } = await db.from('tenants').select('name').eq('id', payload.new.tenant_id).single();
+        notifyEvent('BILL_DUE', {
+          tenantName: tenant?.name || 'Desconhecido',
+          value: payload.new.amount_due
+        }).catch(e => console.error(e));
+      } catch (e) { console.error(e); }
+    })
+    .subscribe();
+
+  console.log('[Realtime] Listeners initialized for notifications.');
 });
 

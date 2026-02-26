@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import dotenv from 'dotenv';
+import { notifyEvent } from './notificationService.js';
 
 dotenv.config({ path: '.env.server' });
 
@@ -137,6 +138,28 @@ export const YampiSyncService = {
                 }
 
                 const dbOrders = rawOrders.map(yo => mapYampiOrder(yo, tenant.id));
+
+                // --- Notification Logic ---
+                const approvedNew = dbOrders.filter(o => o.status === 'APROVADO');
+                for (const order of approvedNew) {
+                    // Check if this specific order already exists in our DB to avoid spamming
+                    const { data: existing } = await supabase.from('orders')
+                        .select('id, status')
+                        .eq('tenant_id', tenant.id)
+                        .eq('external_id', order.external_id)
+                        .maybeSingle();
+
+                    if (!existing || (existing.status !== 'APROVADO')) {
+                        // This is a "New Approval" event
+                        await notifyEvent('SALE', {
+                            tenantId: tenant.id,
+                            value: order.value,
+                            productName: order.product,
+                            clientName: order.client
+                        });
+                    }
+                }
+                // --------------------------
 
                 const { error } = await supabase
                     .from('orders')
@@ -294,6 +317,258 @@ export const YampiSyncService = {
 
         } catch (err) {
             console.error(`[YampiSync Products] Error for tenant ${alias}:`, err.response?.data || err.message);
+            throw err;
+        }
+    },
+
+    /**
+     * Synchronizes all coupons for a specific tenant.
+     */
+    async syncCoupons(tenant) {
+        const alias = tenant.yampi_alias || tenant.yampiAlias;
+        const token = tenant.yampi_token || tenant.yampiToken;
+        const secret = tenant.yampi_secret || tenant.yampiSecret;
+        const oauthToken = tenant.yampi_oauth_access_token || tenant.yampiOauthAccessToken;
+
+        if (!alias) throw new Error(`Tenant ${tenant.id} missing Yampi Alias.`);
+
+        const apiBase = `https://api.dooki.com.br/v2/${alias}`;
+        const headers = { 'Alias': alias, 'Content-Type': 'application/json' };
+        if (oauthToken) headers['Authorization'] = `Bearer ${oauthToken}`;
+        else { headers['User-Token'] = token; headers['User-Secret-Key'] = secret; }
+
+        try {
+            console.log(`[YampiSync Coupons] Fetching coupons for ${alias}...`);
+            const response = await axios.get(`${apiBase}/promotions/coupons`, { headers, timeout: 20000 });
+            const rawCoupons = response.data?.data || [];
+
+            const dbCoupons = rawCoupons.map(c => ({
+                tenant_id: tenant.id,
+                code: c.code,
+                type: c.type === 'percentage' ? 'percentage' : 'fixed',
+                value: parseFloat(c.value || 0),
+                active: c.active ?? true,
+                usage_limit: c.limit_usage || null,
+                usage_count: c.used_count || 0
+            }));
+
+            // Upsert based on code + tenant_id
+            for (const coupon of dbCoupons) {
+                const { error } = await supabase.from('coupons')
+                    .upsert(coupon, { onConflict: 'tenant_id, code', ignoreDuplicates: false });
+                if (error) console.error(`[YampiSync Coupons] Upsert failed for ${coupon.code}`, error.message);
+            }
+
+            return { count: dbCoupons.length };
+        } catch (err) {
+            console.error(`[YampiSync Coupons] Error:`, err.response?.data || err.message);
+            throw err;
+        }
+    },
+
+    /**
+     * Synchronizes abandoned checkouts.
+     */
+    async syncAbandonedCheckouts(tenant) {
+        const alias = tenant.yampi_alias || tenant.yampiAlias;
+        const headers = { 'Alias': alias, 'Content-Type': 'application/json' };
+        if (tenant.yampi_oauth_access_token) headers['Authorization'] = `Bearer ${tenant.yampi_oauth_access_token}`;
+        else { headers['User-Token'] = tenant.yampi_token; headers['User-Secret-Key'] = tenant.yampi_secret; }
+
+        try {
+            console.log(`[YampiSync Abandoned] Fetching for ${alias}...`);
+            const response = await axios.get(`https://api.dooki.com.br/v2/${alias}/abandoned-checkouts`, {
+                params: { limit: 100, include: 'customer,items' },
+                headers,
+                timeout: 20000
+            });
+            const rawAb = response.data?.data || [];
+
+            const dbAb = rawAb.map(ab => {
+                const customer = ab.customer?.data || {};
+                return {
+                    tenant_id: tenant.id,
+                    external_id: String(ab.id),
+                    client_name: `${customer.first_name || 'Cliente'} ${customer.last_name || ''}`.trim(),
+                    email: customer.email || '',
+                    phone: customer.phone || '',
+                    product_name: ab.items?.data?.[0]?.product_name || 'Produto',
+                    value: parseFloat(ab.total || 0),
+                    date: ab.created_at?.date || ab.created_at || new Date().toISOString(),
+                    items: ab.items?.data || [],
+                    recovered: ab.recovered ?? false
+                };
+            });
+
+            const { error } = await supabase.from('abandoned_checkouts').upsert(dbAb, { onConflict: 'tenant_id, external_id' });
+            if (error) throw error;
+
+            return { count: dbAb.length };
+        } catch (err) {
+            console.error(`[YampiSync Abandoned] Error:`, err.response?.data || err.message);
+            throw err;
+        }
+    },
+
+    /**
+     * Synchronizes domains.
+     */
+    async syncDomains(tenant) {
+        const alias = tenant.yampi_alias || tenant.yampiAlias;
+        const headers = { 'Alias': alias, 'Content-Type': 'application/json' };
+        if (tenant.yampi_oauth_access_token) headers['Authorization'] = `Bearer ${tenant.yampi_oauth_access_token}`;
+        else { headers['User-Token'] = tenant.yampi_token; headers['User-Secret-Key'] = tenant.yampi_secret; }
+
+        try {
+            console.log(`[YampiSync Domains] Fetching for ${alias}...`);
+            const response = await axios.get(`https://api.dooki.com.br/v2/${alias}/settings/domains`, { headers, timeout: 20000 });
+            const rawDomains = response.data?.data || [];
+
+            const dbDomains = rawDomains.map(d => ({
+                tenant_id: tenant.id,
+                url: d.domain,
+                is_main: d.main ?? false,
+                status: d.status || 'active',
+                ssl: d.ssl ?? true
+            }));
+
+            // Domains might not have a unique constraint on (tenant_id, url) in the current init.sql, 
+            // but we'll assume we can upsert or at least refresh them.
+            // If the table doesn't have a unique constraint, this might duplicate.
+            // I'll check init.sql again... it doesn't have a unique constraint on url.
+            // I'll delete and re-insert for domains to keep it clean if no external_id.
+            await supabase.from('domains').delete().eq('tenant_id', tenant.id);
+            const { error } = await supabase.from('domains').insert(dbDomains);
+            if (error) throw error;
+
+            return { count: dbDomains.length };
+        } catch (err) {
+            console.error(`[YampiSync Domains] Error:`, err.response?.data || err.message);
+            throw err;
+        }
+    },
+
+    /**
+     * Creates a coupon on Yampi.
+     */
+    async createCoupon(tenant, couponData) {
+        const alias = tenant.yampi_alias || tenant.yampiAlias;
+        const headers = { 'Alias': alias, 'Content-Type': 'application/json' };
+        if (tenant.yampi_oauth_access_token) headers['Authorization'] = `Bearer ${tenant.yampi_oauth_access_token}`;
+        else { headers['User-Token'] = tenant.yampi_token; headers['User-Secret-Key'] = tenant.yampi_secret; }
+
+        try {
+            console.log(`[YampiSync] Creating coupon ${couponData.code} on ${alias}...`);
+            const payload = {
+                code: couponData.code,
+                type: couponData.type === 'percentage' ? 'percentage' : 'fixed',
+                value: couponData.value,
+                active: true,
+                limit_usage: couponData.usageLimit > 0 ? couponData.usageLimit : null
+            };
+            const response = await axios.post(`https://api.dooki.com.br/v2/${alias}/promotions/coupons`, payload, { headers });
+            return response.data?.data;
+        } catch (err) {
+            console.error(`[YampiSync] Create Coupon Error:`, err.response?.data || err.message);
+            throw err;
+        }
+    },
+
+    /**
+     * Influencers are local but tied to Yampi coupons. 
+     * This syncs the usage stats from Yampi coupons into our influencers table.
+     */
+    async syncInfluencers(tenant) {
+        try {
+            // First sync coupons to get latest usage counts
+            await this.syncCoupons(tenant);
+
+            const { data: influencers } = await supabase.from('influencers').select('*, coupons(*)').eq('tenant_id', tenant.id);
+            if (!influencers) return { count: 0 };
+
+            for (const inf of influencers) {
+                const coupon = inf.coupons;
+                if (!coupon) continue;
+
+                // Simple: total_sales = usage_count, total_commission = usage_count * (avg ticket? NO, we need order values)
+                // Ideally we filter orders by coupon_code. Let's do that.
+                const { data: orders } = await supabase.from('orders')
+                    .select('value')
+                    .eq('tenant_id', tenant.id)
+                    .eq('coupon_code', coupon.code)
+                    .eq('status', 'APROVADO');
+
+                const totalSales = orders?.length || 0;
+                const totalRevenue = orders?.reduce((sum, o) => sum + Number(o.value || 0), 0) || 0;
+                const totalCommission = (totalRevenue * Number(inf.commission_rate)) / 100;
+
+                await supabase.from('influencers').update({
+                    total_sales: totalSales,
+                    total_commission: totalCommission
+                }).eq('id', inf.id);
+            }
+
+            return { count: influencers.length };
+        } catch (err) {
+            console.error(`[YampiSync Influencers] Error:`, err.message);
+            throw err;
+        }
+    },
+
+    /**
+     * Synchronizes communication settings (automations) from Yampi.
+     */
+    async syncCommSettings(tenant) {
+        const alias = tenant.yampi_alias || tenant.yampiAlias;
+        const headers = { 'Alias': alias, 'Content-Type': 'application/json' };
+        if (tenant.yampi_oauth_access_token) headers['Authorization'] = `Bearer ${tenant.yampi_oauth_access_token}`;
+        else { headers['User-Token'] = tenant.yampi_token; headers['User-Secret-Key'] = tenant.yampi_secret; }
+
+        try {
+            console.log(`[YampiSync Settings] Fetching for ${alias}...`);
+            // Yampi settings for abandoned checkouts
+            const response = await axios.get(`https://api.dooki.com.br/v2/${alias}/settings/abandoned-checkouts`, { headers, timeout: 20000 });
+            const settings = response.data?.data || {};
+
+            // Map Yampi settings to our inner triggers
+            const activeTriggers = [];
+            if (settings.active) activeTriggers.push('cart_abandoned');
+            // Add more mappings as we discover them
+
+            const dbSettings = {
+                tenant_id: tenant.id,
+                active_triggers: activeTriggers,
+                updated_at: new Date().toISOString()
+            };
+
+            await supabase.from('comm_settings').upsert(dbSettings, { onConflict: 'tenant_id' });
+            return dbSettings;
+        } catch (err) {
+            console.error(`[YampiSync Settings] Error:`, err.response?.data || err.message);
+            // Don't throw if endpoint doesn't exist, just return local
+            return null;
+        }
+    },
+
+    /**
+     * Updates automation settings on Yampi.
+     */
+    async updateCommSettings(tenant, triggerId, active) {
+        if (triggerId !== 'cart_abandoned' && triggerId !== 'cart_1h' && triggerId !== 'cart_24h') return;
+
+        const alias = tenant.yampi_alias || tenant.yampiAlias;
+        const headers = { 'Alias': alias, 'Content-Type': 'application/json' };
+        if (tenant.yampi_oauth_access_token) headers['Authorization'] = `Bearer ${tenant.yampi_oauth_access_token}`;
+        else { headers['User-Token'] = tenant.yampi_token; headers['User-Secret-Key'] = tenant.yampi_secret; }
+
+        try {
+            console.log(`[YampiSync Settings] Updating ${triggerId} to ${active} for ${alias}...`);
+            // Yampi usually has one main "abandoned" toggle that controls their internal automation
+            await axios.put(`https://api.dooki.com.br/v2/${alias}/settings/abandoned-checkouts`, {
+                active: active
+            }, { headers, timeout: 20000 });
+        } catch (err) {
+            console.error(`[YampiSync Settings] Update Error:`, err.response?.data || err.message);
             throw err;
         }
     }

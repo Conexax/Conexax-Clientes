@@ -34,10 +34,10 @@ const Login: React.FC = () => {
         <div className="min-h-screen flex items-center justify-center bg-background-deep p-4">
             <div className="w-full max-w-md glass-panel p-8 rounded-2xl border border-white/10 shadow-2xl">
                 <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/20">
-                        <span className="text-neutral-950 font-black text-4xl italic">C</span>
+                    <div className="flex items-center justify-center mx-auto mb-4 hover:scale-105 transition-transform duration-500">
+                        <img src="/logo-conexx.png" alt="ConexaX" className="w-24 h-24 object-contain" />
                     </div>
-                    <h1 className="text-2xl font-bold text-white mb-2">Conexx Hub</h1>
+                    <h1 className="text-2xl font-bold text-white mb-2 italic">ConexaX Clientes</h1>
                     <p className="text-slate-400">Entre para acessar o painel</p>
                 </div>
 

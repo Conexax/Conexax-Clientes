@@ -7,10 +7,11 @@ const Automations: React.FC = () => {
   const settings = state.commSettings;
 
   const toggleTrigger = (id: string) => {
-    const newTriggers = settings.activeTriggers.includes(id)
+    const isActive = settings.activeTriggers.includes(id);
+    const newTriggers = isActive
       ? settings.activeTriggers.filter(t => t !== id)
       : [...settings.activeTriggers, id];
-    actions.saveCommSettings({ ...settings, activeTriggers: newTriggers });
+    actions.saveCommSettings({ ...settings, activeTriggers: newTriggers }, id, !isActive);
   };
 
   return (
@@ -35,9 +36,9 @@ const Automations: React.FC = () => {
               <span className="material-symbols-outlined text-primary">hub</span>
               <h3 className="text-xl font-black text-white italic">Canais Integrados</h3>
             </div>
-            
+
             <p className="text-sm text-slate-400 leading-relaxed font-medium">
-              Sua conta utiliza os serviços de envio de <strong>E-mail Marketing</strong> e <strong>SMS Transacional</strong> diretamente da Yampi. 
+              Sua conta utiliza os serviços de envio de <strong>E-mail Marketing</strong> e <strong>SMS Transacional</strong> diretamente da Yampi.
               As mensagens são disparadas automaticamente seguindo os gatilhos configurados abaixo.
             </p>
 
@@ -55,10 +56,10 @@ const Automations: React.FC = () => {
             </div>
 
             <div className="pt-6 border-t border-white/5">
-               <div className="flex items-center gap-3 text-amber-500 bg-amber-500/10 p-4 rounded-xl border border-amber-500/20">
-                 <span className="material-symbols-outlined text-sm">info</span>
-                 <p className="text-[10px] font-black uppercase tracking-widest">Os créditos de SMS devem ser gerenciados no painel Yampi.</p>
-               </div>
+              <div className="flex items-center gap-3 text-amber-500 bg-amber-500/10 p-4 rounded-xl border border-amber-500/20">
+                <span className="material-symbols-outlined text-sm">info</span>
+                <p className="text-[10px] font-black uppercase tracking-widest">Os créditos de SMS devem ser gerenciados no painel Yampi.</p>
+              </div>
             </div>
           </div>
           <div className="absolute -right-8 -bottom-8 opacity-5">
@@ -81,7 +82,7 @@ const Automations: React.FC = () => {
               { id: 'order_shipped', label: 'Aviso de Envio (Rastreio)', icon: 'local_shipping', type: 'E-mail' },
               { id: 'upsell', label: 'Oferta de Upsell Pós-venda', icon: 'star', type: 'SMS' },
             ].map(trigger => (
-              <div 
+              <div
                 key={trigger.id}
                 onClick={() => toggleTrigger(trigger.id)}
                 className={`glass-panel p-6 rounded-2xl flex items-center justify-between cursor-pointer border-l-4 transition-all ${settings.activeTriggers.includes(trigger.id) ? 'border-l-primary bg-primary/5 shadow-lg shadow-primary/5' : 'border-l-neutral-700 opacity-60'}`}

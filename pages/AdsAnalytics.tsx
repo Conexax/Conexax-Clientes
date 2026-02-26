@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { toast } from 'react-hot-toast';
 
 const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenantId }) => {
     const { state } = useData();
@@ -42,17 +43,23 @@ const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenan
                 console.log("Fetching metrics for tenant:", tenantId, "from", dateRange.startDate, "to", dateRange.endDate);
 
                 if (metaRes.status === 'fulfilled') {
-                    console.log("Meta Res Status:", metaRes.value.status, metaRes.value.ok);
-                    if (metaRes.value.ok) fetchedMeta = await metaRes.value.json();
-                    else console.error("Meta fetch failed:", await metaRes.value.text());
+                    if (metaRes.value.ok) {
+                        fetchedMeta = await metaRes.value.json();
+                    } else {
+                        const errData = await metaRes.value.json().catch(() => ({ error: 'Erro desconhecido na Meta' }));
+                        if (errData.error) toast.error(`Meta: ${errData.error}`, { id: 'meta-error' });
+                    }
                 } else {
                     console.error("Meta promise rejected:", metaRes.reason);
                 }
 
                 if (gaRes.status === 'fulfilled') {
-                    console.log("GA Res Status:", gaRes.value.status, gaRes.value.ok);
-                    if (gaRes.value.ok) fetchedGa = await gaRes.value.json();
-                    else console.error("GA fetch failed:", await gaRes.value.text());
+                    if (gaRes.value.ok) {
+                        fetchedGa = await gaRes.value.json();
+                    } else {
+                        const errData = await gaRes.value.json().catch(() => ({ error: 'Erro desconhecido no Google' }));
+                        if (errData.error) toast.error(`Google: ${errData.error}`, { id: 'ga-error' });
+                    }
                 } else {
                     console.error("GA promise rejected:", gaRes.reason);
                 }
@@ -96,28 +103,47 @@ const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenan
                     bounceRate: gaData.bounceRate || 0
                 });
 
-                // Generating daily data with a slight variance to look realistic in the charts if we have totals
-                const mockDailyData = Array.from({ length: diffDays }).map((_, i) => {
-                    const d = new Date(dateRange.startDate);
-                    d.setDate(d.getDate() + i + 1);
+                // Merge real daily data from both sources by date
+                const mergedDaily: any = {};
 
-                    // Add some random variance to the daily average if we have totals
-                    const metaSpendDay = mSpend > 0 ? (mSpend / diffDays) * (0.8 + Math.random() * 0.4) : 0;
-                    const metaConvDay = mPurchases > 0 ? Math.round((mPurchases / diffDays) * (0.8 + Math.random() * 0.4)) : 0;
+                if (metaData.daily) {
+                    metaData.daily.forEach((d: any) => {
+                        mergedDaily[d.date] = { ...mergedDaily[d.date], date: d.date, metaSpend: d.metaSpend, metaConversions: d.metaConversions };
+                    });
+                }
 
-                    const googleSpendDay = gSpend > 0 ? (gSpend / diffDays) * (0.8 + Math.random() * 0.4) : 0;
-                    const googleConvDay = gConversions > 0 ? Math.round((gConversions / diffDays) * (0.8 + Math.random() * 0.4)) : 0;
+                if (gaData.daily) {
+                    gaData.daily.forEach((d: any) => {
+                        mergedDaily[d.date] = { ...mergedDaily[d.date], date: d.date, googleSpend: d.googleSpend, googleConversions: d.googleConversions };
+                    });
+                }
 
-                    return {
-                        date: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-                        metaSpend: metaSpendDay,
-                        metaConversions: metaConvDay,
-                        googleSpend: googleSpendDay,
-                        googleConversions: googleConvDay
-                    };
-                });
+                const finalDaily = Object.values(mergedDaily);
 
-                setDailyData(metaData.daily || gaData.daily || mockDailyData);
+                // Fallback to mock only if no real daily data exists at all
+                if (finalDaily.length > 0) {
+                    setDailyData(finalDaily);
+                } else {
+                    const mockDailyData = Array.from({ length: diffDays }).map((_, i) => {
+                        const d = new Date(dateRange.startDate);
+                        d.setDate(d.getDate() + i + 1);
+                        const dateStr = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+
+                        const metaSpendDay = mSpend > 0 ? (mSpend / diffDays) * (0.8 + Math.random() * 0.4) : 0;
+                        const metaConvDay = mPurchases > 0 ? Math.round((mPurchases / diffDays) * (0.8 + Math.random() * 0.4)) : 0;
+                        const googleSpendDay = gSpend > 0 ? (gSpend / diffDays) * (0.8 + Math.random() * 0.4) : 0;
+                        const googleConvDay = gConversions > 0 ? Math.round((gConversions / diffDays) * (0.8 + Math.random() * 0.4)) : 0;
+
+                        return {
+                            date: dateStr,
+                            metaSpend: metaSpendDay,
+                            metaConversions: metaConvDay,
+                            googleSpend: googleSpendDay,
+                            googleConversions: googleConvDay
+                        };
+                    });
+                    setDailyData(mockDailyData);
+                }
 
             } catch (e) {
                 console.error("Erro ao buscar métricas de tráfego:", e);

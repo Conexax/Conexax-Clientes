@@ -45,6 +45,8 @@ import { NotificationProvider } from './context/NotificationContext';
 import ToastContainer from './components/ToastContainer';
 import NotificationCenter from './components/NotificationCenter';
 import ErrorBoundary from './components/ErrorBoundary';
+import PushAdmin from './pages/PushAdmin';
+import ScrollToTop from './components/ScrollToTop';
 
 
 const SidebarItem: React.FC<{
@@ -126,7 +128,7 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
       />
 
       <aside className={`fixed left-0 top-0 h-screen w-[280px] bg-[#0a0a0a] border-r border-white/5 flex flex-col z-[60] overflow-y-auto scrollbar-thin transition-transform duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 pb-2">
+        <div className="p-6 pt-12 lg:pt-6 pb-2">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
               {isAdmin || !state.activeTenant?.logoUrl ? (
@@ -154,6 +156,7 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
                   <SidebarItem to="/plan-management" icon="receipt_long" label="Planos" active={currentPath === 'plan-management'} onClick={onClose} />
                   <SidebarItem to="/users" icon="manage_accounts" label="Admins" active={currentPath === 'users'} onClick={onClose} />
                   <SidebarItem to="/admin/asaas" icon="api" label="Configuração Asaas" active={currentPath === 'admin/asaas'} onClick={onClose} />
+                  <SidebarItem to="/admin/push" icon="notifications_active" label="Notificações Push" active={currentPath === 'admin/push'} onClick={onClose} />
                 </SidebarGroup>
 
                 <SidebarGroup label="Financeiro" icon="account_balance" isOpen={openGroup === 'admin_fin'} onToggle={() => toggleGroup('admin_fin')}>
@@ -258,8 +261,8 @@ const MainLayout = () => {
       <header
         className="lg:hidden bg-[#0a0a0a] border-b border-white/5 flex items-center justify-between px-5 sticky top-0 z-[50]"
         style={{
-          paddingTop: 'env(safe-area-inset-top)',
-          height: 'calc(64px + env(safe-area-inset-top))'
+          paddingTop: 'calc(env(safe-area-inset-top) + 8px)',
+          height: 'calc(72px + env(safe-area-inset-top))'
         }}
       >
         <div className="flex items-center gap-2">
@@ -299,6 +302,7 @@ const MainLayout = () => {
             <Route path="/plans" element={<BillingPlans />} />
             <Route path="/plan-management" element={<PlanManagement />} />
             <Route path="/admin/asaas" element={<AsaasConfig />} />
+            <Route path="/admin/push" element={<PushAdmin />} />
             <Route path="/assinaturas" element={<Subscriptions />} />
             <Route path="/assinaturas/:id" element={<SubscriptionDetails />} />
             <Route path="/assinatura/sucesso" element={<UpgradeSuccess />} />
@@ -332,6 +336,7 @@ const App: React.FC = () => {
       <NotificationProvider>
         <ToastContainer />
         <HashRouter>
+          <ScrollToTop />
           <ErrorBoundary>
             <Routes>
               <Route path="/login" element={<Login />} />

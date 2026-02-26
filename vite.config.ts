@@ -35,26 +35,26 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
         manifest: {
-          name: 'Conexx Hub',
-          short_name: 'Conexx',
-          description: 'Gestão Inteligente para seu Negócio',
+          name: 'ConexaX Clientes',
+          short_name: 'ConexaX',
+          description: 'Dashboard para Lojistas ConexaX',
           theme_color: '#10b981',
-          background_color: '#000000',
+          background_color: '#070707',
           display: 'standalone',
           start_url: '/',
           icons: [
             {
-              src: 'pwa-icons/icon-192.png',
+              src: '/pwa-icons/icon-192.png',
               sizes: '192x192',
               type: 'image/png'
             },
             {
-              src: 'pwa-icons/icon-512.png',
+              src: '/pwa-icons/icon-512.png',
               sizes: '512x512',
               type: 'image/png'
             },
             {
-              src: 'pwa-icons/icon-512.png',
+              src: '/pwa-icons/icon-512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any maskable'

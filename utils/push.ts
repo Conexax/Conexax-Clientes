@@ -14,24 +14,55 @@ export async function registerServiceWorker() {
 
 export async function askForNotificationPermission() {
     if (typeof Notification === 'undefined') {
-        console.log('This browser does not support desktop notifications');
         return 'denied';
     }
 
     const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+        await subscribeUserToPush();
+    }
     return permission;
 }
 
-export function sendMockPush(title: string, message: string) {
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        navigator.serviceWorker.ready.then(registration => {
-            // Since we can't really push from server without VAPID keys in this mock,
-            // we use showNotification directly from the registration.
-            registration.showNotification(title, {
-                body: message,
-                icon: '/logo-conexx.png',
-                // vibrate: [200, 100, 200] as any
-            });
+async function subscribeUserToPush() {
+    try {
+        const registration = await navigator.serviceWorker.ready;
+
+        // Get VAPID key from environment
+        const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+        if (!vapidPublicKey) {
+            console.error('VAPID Public Key missing in environment');
+            return;
+        }
+
+        const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
         });
+
+        // Send to server
+        const userId = localStorage.getItem('conexx_user_id'); // Assuming it's there or we get from context
+        if (!userId) return;
+
+        await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, subscription })
+        });
+
+        console.log('Successfully subscribed to Push Notifications');
+    } catch (error) {
+        console.error('Failed to subscribe to Push:', error);
     }
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
 }

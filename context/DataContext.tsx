@@ -32,8 +32,8 @@ interface DataContextType {
     saveCoupon: (coupon: Partial<Coupon>) => Promise<void>;
     deleteCoupon: (id: string) => void;
     saveInfluencer: (influencer: Partial<Influencer>) => void;
-    deleteInfluencer: (id: string) => void;
-    saveCommSettings: (settings: CommSettings) => void;
+    deleteInfluencer: (id: string) => Promise<void>;
+    saveCommSettings: (settings: CommSettings, triggerId?: string, active?: boolean) => Promise<void>;
     fetchGoalsProgress: (startDate: string, endDate: string) => Promise<any>;
     subscribeToPlan: (planId: string, cycle: 'quarterly' | 'semiannual' | 'yearly', billingType?: 'monthly' | 'upfront', paymentMethod?: 'CREDIT_CARD' | 'BOLETO' | 'PIX') => Promise<any>;
     generateCharge: (requestId: string, paymentMethod: string) => Promise<any>;
@@ -56,6 +56,9 @@ interface DataContextType {
     previewWeeklyFees: (startDate: string, endDate: string) => Promise<any>;
     clearSyncError: () => void;
     fetchMyPayments: () => Promise<void>;
+    fetchTeam: () => Promise<void>;
+    addTeamMember: (payload: any) => Promise<void>;
+    deleteTeamMember: (userId: string) => Promise<void>;
   };
 }
 
@@ -181,7 +184,9 @@ const mapOrderFromDB = (r: any): Order => ({
   paymentMethod: r.payment_method,
   value: Number(r.value) || 0,
   initials: (r.client?.[0] || 'C').toUpperCase(),
-  couponCode: r.coupon_code
+  couponCode: r.coupon_code,
+  trackCode: r.track_code,
+  shipmentService: r.shipment_service
 });
 
 const mapAbCheckoutFromDB = (r: any): AbandonedCheckout => ({
@@ -311,88 +316,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               tenant = t;
             }
 
-            // Map Data
-            console.log("[restoreSession] Mapping user data for email:", user.email);
             const mappedUser = mapUserFromDB(user);
             const mappedTenant = tenant ? mapTenantFromDB(tenant) : null;
-            console.log("[restoreSession] User mapped. Role:", mappedUser.role);
 
-            // Load context data based on role
-            let allTenants: Tenant[] = [];
-            let allUsers: User[] = [];
+            // Pre-fetch critical data in parallel
+            const [plansRes, usersRes, tenantsRes] = await Promise.all([
+              supabase.from('plans').select('*'),
+              mappedUser.role === UserRole.CONEXX_ADMIN
+                ? supabase.from('users').select('*')
+                : supabase.from('users').select('*').eq('tenant_id', mappedUser.tenantId),
+              mappedUser.role === UserRole.CONEXX_ADMIN
+                ? supabase.from('tenants').select('*')
+                : Promise.resolve({ data: [] })
+            ]);
 
-            if (mappedUser.role === UserRole.CONEXX_ADMIN) {
-              console.log("Admin Logged In - Restoring Session...");
-              const { data: t } = await supabase.from('tenants').select('*');
-              allTenants = (t || []).map(mapTenantFromDB);
-              const { data: u } = await supabase.from('users').select('*');
-              allUsers = (u || []).map(mapUserFromDB);
-
-              console.log("Fetching Orders for Admin...");
-              const { data: allOrders, error: orderErr } = await supabase.from('orders').select('*');
-              if (orderErr) console.error("Error fetching orders:", orderErr);
-              console.log(`Fetched ${allOrders?.length} orders.`);
-
-              const { data: allAbandoned } = await supabase.from('abandoned_checkouts').select('*');
-
-              // Inline syncAsaasConfig logic to avoid reference issues
-              try {
-                const { data: acVal, error: acErr } = await supabase.from('platform_settings').select('value').eq('key', 'asaas_config').single();
-                if (acVal && !acErr) {
-                  setState(prev => ({ ...prev, asaasConfig: acVal.value }));
-                }
-              } catch (e) { console.error("Error loading asaas config", e); }
-
-              setState(prev => ({
-                ...prev,
-                orders: (allOrders || []).map(mapOrderFromDB),
-                abandonedCheckouts: (allAbandoned || []).map(mapAbCheckoutFromDB)
-              }));
-            } else if (mappedUser.tenantId) {
-              const { data: u } = await supabase.from('users').select('*').eq('tenant_id', mappedUser.tenantId);
-              allUsers = (u || []).map(mapUserFromDB);
-
-              // Fetch Orders & Abandoned for the specific tenant
-              const { data: tenantOrders } = await supabase.from('orders').select('*').eq('tenant_id', mappedUser.tenantId);
-              const { data: tenantAbandoned } = await supabase.from('abandoned_checkouts').select('*').eq('tenant_id', mappedUser.tenantId);
-
-              setState(prev => ({
-                ...prev,
-                orders: (tenantOrders || []).map(mapOrderFromDB),
-                abandonedCheckouts: (tenantAbandoned || []).map(mapAbCheckoutFromDB)
-              }));
-            }
-
-            const { data: dbPlans } = await supabase.from('plans').select('*');
-            const opData = AuthService.getOperationalData();
-
+            // Update state in one batch to ensure consistency for ProtectedRoutes
             setState(prev => ({
               ...prev,
               currentUser: mappedUser,
               activeTenant: mappedTenant,
-              tenants: allTenants,
-              users: allUsers,
-              ...opData,
-              plans: (dbPlans || []).map(mapPlanFromDB)
+              tenants: (tenantsRes.data || []).map(mapTenantFromDB),
+              users: (usersRes.data || []).map(mapUserFromDB),
+              plans: (plansRes.data || []).map(mapPlanFromDB)
             }));
 
-            // Fetch Products & Categories
-            if (mappedUser.role === UserRole.CONEXX_ADMIN || mappedTenant) { // Admin or Tenant User
-              const tId = mappedTenant ? mappedTenant.id : null;
-              if (tId) {
-                const { data: dbCats } = await supabase.from('categories').select('*').eq('tenant_id', tId);
-                const { data: dbProds } = await supabase.from('products').select('*').eq('tenant_id', tId);
-                const { data: dbCoupons } = await supabase.from('coupons').select('*').eq('tenant_id', tId);
-
-                setState(prev => ({
-                  ...prev,
-                  categories: (dbCats || []).map(mapCategoryFromDB),
-                  products: (dbProds || []).map(mapProductFromDB),
-                  coupons: (dbCoupons || []).map(mapCouponFromDB)
-                }));
-              }
-            }
-            // request an initial sync if tenant has Yampi credentials (token or oauth)
             if (mappedTenant && (mappedTenant.yampiToken || mappedTenant.yampiOauthAccessToken)) {
               setInitialSyncRequested(true);
             }
@@ -448,9 +395,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const totalRevenue = approved.reduce((acc, curr) => acc + curr.value, 0);
     const averageTicket = approved.length > 0 ? totalRevenue / approved.length : 0;
 
+    // cache coupons for faster lookup
+    const couponMap = new Map(state.coupons.map(c => [c.id, c]));
+
     const influencerStats = state.influencers.map(inf => {
-      const coupon = state.coupons.find(c => c.id === inf.couponId);
-      const infOrders = approved.filter(o => o.couponCode === coupon?.code);
+      const coupon = couponMap.get(inf.couponId) as any;
+      const infOrders = coupon ? approved.filter(o => o.couponCode === coupon.code) : [];
       const revenue = infOrders.reduce((acc, curr) => acc + curr.value, 0);
       return {
         ...inf,
@@ -460,16 +410,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     });
 
-    // --- Improved Stats Calculation for Graphs ---
     const ordersByDayMap = new Map<string, number>();
     const productPerfMap = new Map<string, { name: string, revenue: number, sales: number }>();
 
     approved.forEach(o => {
-      // 1. Orders By Day
-      const dateKey = new Date(o.date).toLocaleDateString('pt-BR'); // DD/MM/YYYY
+      // Avoid new Date().toLocaleDateString in loop if possible, or at least minimize it
+      const dateKey = o.date.split('T')[0]; // YYYY-MM-DD is faster and consistent
       ordersByDayMap.set(dateKey, (ordersByDayMap.get(dateKey) || 0) + o.value);
 
-      // 2. Product Performance
       const pName = o.product || 'Desconhecido';
       const curr = productPerfMap.get(pName) || { name: pName, revenue: 0, sales: 0 };
       curr.revenue += o.value;
@@ -477,17 +425,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       productPerfMap.set(pName, curr);
     });
 
-    // Convert Maps to Arrays for Recharts
     const ordersByDay = Array.from(ordersByDayMap.entries())
-      .map(([day, value]) => ({ day, value }));
+      .map(([day, value]) => ({ day, value }))
+      .sort((a, b) => a.day.localeCompare(b.day));
 
     const productPerformance = Array.from(productPerfMap.values())
       .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5); // Top 5
+      .slice(0, 5);
 
     return {
       totalRevenue: totalRevenue || 0,
-      globalRevenue: totalRevenue || 0, // This should sum all tenants in a real DB
+      globalRevenue: totalRevenue || 0,
       averageTicket: averageTicket || 0,
       abandonedCount: state.abandonedCheckouts.length || 0,
       abandonedTotalValue: state.abandonedCheckouts.reduce((acc, curr) => acc + curr.value, 0),
@@ -502,7 +450,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [state.orders, state.abandonedCheckouts, state.tenants, state.influencers, state.coupons]);
 
-  const actions = {
+  const actions = useMemo(() => ({
     login: async (email: string, password: string) => {
       try {
         // Query Supabase 'users' table
@@ -1090,94 +1038,120 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!state.activeTenant) return;
       setIsSyncing(true);
       try {
-        // 1. Create/Update on Yampi
-        const finalCoupon = await YampiService.createCouponOnYampi(state.activeTenant, coupon);
-
-        // 2. Persist to Supabase
         const payload = {
-          id: coupon.id || undefined, // Let Supabase gen ID if new and not provided, or use Yampi ID if mapped? 
-          // Better: use the ID returned from Yampi or existing ID
-          // If Yampi generated an ID "YCP-...", we use that.
-          // If Supabase has UUIDs, we might need a mapping. 
-          // implementation_plan said: "Coupons created in Conexx should be created in Yampi."
-          // Let's assume we use the Yampi ID as the canonical ID if possible, or store it. 
-          // But Supabase uses UUIDs by default in schema. 
-          // Let's use the ID from finalCoupon which might be Yampi's ID (integer/string) 
-          // Schema has `id uuid`. This is a conflict if Yampi returns int ID.
-          // MOCK API returns "YCP-" + Date. 
-          // Schema says `id uuid primary key default uuid_generate_v4()`.
-          // We should use a separate `external_id` for Yampi or change ID to text.
-          // checking schema: "id uuid default uuid_generate_v4()". 
-          // If we send a non-UUID it will fail.
-          // For now, let's let Supabase generate UUID and store Yampi ID in a new column? 
-          // Or just rely on `code` being unique.
-          tenant_id: state.activeTenant.id,
-          code: finalCoupon.code,
-          type: finalCoupon.type,
-          value: finalCoupon.value,
-          active: finalCoupon.active,
-          usage_count: finalCoupon.usageCount,
-          usage_limit: finalCoupon.usageLimit
+          tenantId: state.activeTenant.id,
+          code: coupon.code,
+          type: coupon.type,
+          value: coupon.value,
+          usageLimit: coupon.usageLimit
         };
 
-        // Upsert by CODE (since it's unique) or ID if we had it.
-        const { data, error } = await supabase.from('coupons').upsert(payload, { onConflict: 'code' }).select().single();
-        if (error) throw error;
+        const res = await fetch('/api/coupons', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
 
-        const mapped = mapCouponFromDB(data);
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Falha ao salvar cupom na Yampi.');
+        }
+
+        const savedCoupon = await res.json();
+
+        const mapped = mapCouponFromDB(savedCoupon);
         setState(prev => {
           const exists = prev.coupons.find(c => c.id === mapped.id);
           if (exists) return { ...prev, coupons: prev.coupons.map(c => c.id === mapped.id ? mapped : c) };
           return { ...prev, coupons: [...prev.coupons, mapped] };
         });
-
+        toast.success("Cupom sincronizado com Yampi!");
       } catch (e: any) {
-        console.error(e);
-        setSyncError(e.message || "Erro ao salvar cupom.");
+        toast.error(e.message);
       } finally { setIsSyncing(false); }
     },
     syncCoupons: async () => {
-      if (!state.activeTenant) return;
+      // Re-use syncYampi which now includes coupons
+      return actions.syncYampi(state.activeTenant?.id);
+    },
+    deleteCoupon: async (id: string) => {
+      try {
+        const { error } = await supabase.from('coupons').delete().eq('id', id);
+        if (error) throw error;
+        setState(prev => ({ ...prev, coupons: prev.coupons.filter(c => c.id !== id) }));
+        toast.success("Cupom removido localmente.");
+      } catch (e: any) {
+        toast.error("Erro ao remover cupom.");
+      }
+    },
+    saveInfluencer: async (influencer: Partial<Influencer>) => {
       setIsSyncing(true);
       try {
-        // 1. Fetch from Yampi
-        const yampiCoupons = await YampiService.syncCoupons(state.activeTenant);
+        const coupon = state.coupons.find(c => c.id === influencer.couponId);
+        const payload = {
+          tenantId: state.activeTenant?.id,
+          name: influencer.name,
+          couponCode: coupon?.code || influencer.name?.toUpperCase().replace(/\s/g, ''),
+          commissionRate: influencer.commissionRate
+        };
 
-        // 2. Upsert to Supabase
-        const dbCoupons = yampiCoupons.map(c => ({
-          tenant_id: state.activeTenant!.id,
-          code: c.code,
-          type: c.type,
-          value: c.value,
-          active: c.active,
-          usage_count: c.usageCount
-        }));
+        const res = await fetch('/api/influencers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
 
-        if (dbCoupons.length > 0) {
-          const { error } = await supabase.from('coupons').upsert(dbCoupons, { onConflict: 'code' });
-          if (error) throw error;
-        }
+        if (!res.ok) throw new Error('Falha ao salvar influenciador.');
 
-        // 3. Refresh from Supabase
-        const { data: all } = await supabase.from('coupons').select('*').eq('tenant_id', state.activeTenant.id);
-        setState(prev => ({ ...prev, coupons: (all || []).map(mapCouponFromDB) }));
+        const savedInf = await res.json();
 
+        setState(prev => {
+          const exists = prev.influencers.find(i => i.id === savedInf.id);
+          if (exists) return { ...prev, influencers: prev.influencers.map(i => i.id === savedInf.id ? savedInf : i) };
+          return { ...prev, influencers: [...prev.influencers, savedInf] };
+        });
+        toast.success("Influenciador vinculado!");
+        // Refresh coupons to ensure we have the newly created one if applicable
+        await syncAllTenants();
       } catch (e: any) {
-        setSyncError(e.message || 'Erro ao sincronizar cupons.');
+        toast.error(e.message);
       } finally {
         setIsSyncing(false);
       }
     },
-    deleteCoupon: (id: string) => { AuthService.deleteCoupon(id); setState(prev => ({ ...prev, coupons: AuthService.getOperationalData().coupons })); },
-    saveInfluencer: (inf: Partial<Influencer>) => {
-      const newInf = { id: inf.id || 'INF-' + Date.now(), ...inf } as Influencer;
-      AuthService.saveInfluencer(newInf);
-      setState(prev => ({ ...prev, influencers: AuthService.getOperationalData().influencers }));
+    deleteInfluencer: async (id: string) => {
+      try {
+        const { error } = await supabase.from('influencers').delete().eq('id', id);
+        if (error) throw error;
+        setState(prev => ({ ...prev, influencers: prev.influencers.filter(i => i.id !== id) }));
+        toast.success("Influenciador removido.");
+      } catch (e: any) {
+        toast.error("Erro ao remover influenciador.");
+      }
     },
-    deleteInfluencer: (id: string) => { AuthService.deleteInfluencer(id); setState(prev => ({ ...prev, influencers: AuthService.getOperationalData().influencers })); },
-    saveCommSettings: (settings: CommSettings) => {
-      AuthService.saveCommSettings(settings);
-      setState(prev => ({ ...prev, commSettings: settings }));
+    saveCommSettings: async (settings: CommSettings, triggerId?: string, active?: boolean) => {
+      if (!state.activeTenant) return;
+      try {
+        const payload = {
+          tenantId: state.activeTenant.id,
+          triggerId: triggerId,
+          active: active,
+          allTriggers: settings.activeTriggers
+        };
+
+        const res = await fetch('/api/comm-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) throw new Error('Falha ao sincronizar com Yampi.');
+
+        setState(prev => ({ ...prev, commSettings: settings }));
+        toast.success("Configurações sincronizadas!");
+      } catch (e: any) {
+        toast.error(e.message || "Erro ao salvar configurações.");
+      }
     },
     deleteTenant: async (id: string) => {
       try {
@@ -1197,10 +1171,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setState(prev => ({ ...prev, users: (allUsers || []).map(mapUserFromDB) }));
       } catch (e) { console.error(e); }
     },
-    connectYampi: (token: string, secret: string, alias: string, proxyUrl: string) => {
+    connectYampi: async (token: string, secret: string, alias: string, proxyUrl: string) => {
       if (!state.activeTenant) return;
-      const updated = AuthService.updateTenant(state.activeTenant.id, { yampiToken: token, yampiSecret: secret, yampiAlias: alias, yampiProxyUrl: proxyUrl });
-      if (updated) { setState(prev => ({ ...prev, activeTenant: updated, tenants: AuthService.getAllTenants() })); setTimeout(() => actions.syncYampi(), 500); }
+      try {
+        const { error } = await supabase.from('tenants').update({
+          yampi_token: token,
+          yampi_secret: secret,
+          yampi_alias: alias,
+          yampi_proxy_url: proxyUrl
+        }).eq('id', state.activeTenant.id);
+
+        if (error) throw error;
+
+        toast.success("Credenciais Yampi salvas!");
+        await syncAllTenants(); // Re-fetch active tenant
+        setTimeout(() => actions.syncYampi(), 500);
+      } catch (e: any) {
+        toast.error("Erro ao conectar Yampi.");
+      }
     },
     addOrder: (o: any) => setState(prev => ({ ...prev, orders: [o, ...prev.orders] })),
     updateOrder: (id: string, u: any) => setState(prev => ({ ...prev, orders: prev.orders.map(o => o.id === id ? { ...o, ...u } : o) })),
@@ -1700,7 +1688,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
       } catch (e) { console.error(e); }
     }
-  };
+  }), [state.activeTenant?.id, state.currentUser?.id, initialSyncRequested]);
 
   // Trigger initial sync once after restoreSession if requested and tenant present
   useEffect(() => {

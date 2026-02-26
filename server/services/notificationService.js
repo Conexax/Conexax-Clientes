@@ -51,10 +51,17 @@ export async function createNotification(userId, type, title, message, action = 
     }
 }
 
-async function sendPushNotification(userId, title, body, action) {
+export async function sendPushNotification(userId, title, body, action) {
     try {
+        console.log(`[Push] Attempting to find subscriptions for user: ${userId}`);
         const { data: subs } = await supabase.from('push_subscriptions').select('*').eq('user_id', userId);
-        if (!subs || subs.length === 0) return;
+
+        if (!subs || subs.length === 0) {
+            console.warn(`[Push] No active subscriptions found for user: ${userId}. Ensure they authorized notifications in the browser.`);
+            return;
+        }
+
+        console.log(`[Push] Found ${subs.length} subscription(s) for user: ${userId}. Sending...`);
 
         const payload = JSON.stringify({
             title,
@@ -83,5 +90,70 @@ async function sendPushNotification(userId, title, body, action) {
         await Promise.all(promises);
     } catch (e) {
         console.error('[NotificationService] Push global error', e);
+    }
+}
+
+/**
+ * Sends a notification based on a system event.
+ * @param {string} eventType - SALE, NEW_TENANT, BILL_PAID, BILL_DUE, INTEGRATION
+ * @param {object} data - Event specific data
+ */
+export async function notifyEvent(eventType, data) {
+    console.log(`[EventNotification] Triggered: ${eventType}`, data);
+
+    try {
+        if (eventType === 'SALE') {
+            const { tenantId, value, productName, clientName } = data;
+            // 1. Find the owner/manager of the tenant
+            const { data: users } = await supabase.from('users')
+                .select('id')
+                .eq('tenant_id', tenantId)
+                .in('role', ['client_admin', 'manager']);
+
+            if (users) {
+                const title = "Venda Realizada! 🚀";
+                const body = `Venda de R$ ${value.toLocaleString('pt-BR')} do produto ${productName}. Cliente: ${clientName || 'Não identificado'}`;
+                for (const u of users) {
+                    await createNotification(u.id, 'sale', title, body, { label: 'Ver Pedido', link: '/orders' });
+                }
+            }
+        }
+
+        if (eventType === 'NEW_TENANT' || eventType.startsWith('BILL_')) {
+            // Notify all system admins
+            const { data: admins } = await supabase.from('users')
+                .select('id')
+                .eq('role', 'conexx_admin');
+
+            if (admins) {
+                let title = "";
+                let body = "";
+                let link = "/";
+
+                if (eventType === 'NEW_TENANT') {
+                    title = "Nova Loja Cadastrada! 🏪";
+                    body = `O lojista ${data.name} acaba de entrar no ConexaX.`;
+                    link = "/tenants";
+                } else if (eventType === 'BILL_PAID') {
+                    title = "Pagamento Recebido! 💰";
+                    body = `Recebemos R$ ${data.value.toLocaleString('pt-BR')} de ${data.tenantName}.`;
+                    link = "/admin/statement";
+                } else if (eventType === 'BILL_DUE') {
+                    title = "Fatura Vencendo! ⚠️";
+                    body = `A fatura de ${data.tenantName} vence hoje (R$ ${data.value}).`;
+                    link = "/admin/statement";
+                } else if (eventType === 'BILL_CREATED') {
+                    title = "Novo Plano Assinado! 📄";
+                    body = `${data.tenantName} assinou o plano ${data.planName} (R$ ${data.value}).`;
+                    link = "/admin/statement";
+                }
+
+                for (const admin of admins) {
+                    await createNotification(admin.id, 'system', title, body, { label: 'Ver Detalhes', link });
+                }
+            }
+        }
+    } catch (err) {
+        console.error(`[EventNotification] Error processing ${eventType}:`, err);
     }
 }
