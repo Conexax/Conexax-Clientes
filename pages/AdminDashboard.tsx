@@ -5,6 +5,8 @@ import { useData } from '../context/DataContext';
 
 import DateRangeFilter from '../components/DateRangeFilter';
 
+import { createPortal } from 'react-dom';
+
 const AdminDashboard: React.FC = () => {
   const { state, stats, actions, isSyncing, isLoading } = useData();
   const [dateRange, setDateRange] = useState<{ start: Date, end: Date }>({
@@ -15,11 +17,16 @@ const AdminDashboard: React.FC = () => {
 
   const [yampiStats, setYampiStats] = useState<any>(null);
   const [isFetchingStats, setIsFetchingStats] = useState(false);
+  const [mobileHeaderNode, setMobileHeaderNode] = useState<HTMLElement | null>(null);
 
   const handleFilterChange = (start: Date, end: Date, period: string) => {
     setDateRange({ start, end });
     setFilterPeriod(period);
   };
+
+  useEffect(() => {
+    setMobileHeaderNode(document.getElementById('mobile-header-actions'));
+  }, []);
 
   // Fetch metrics from backend
   React.useEffect(() => {
@@ -76,7 +83,7 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-10">
       <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 relative z-10">
-        <div>
+        <div className="hidden lg:block">
           <h2 className="text-4xl font-black text-white mb-2 tracking-tight">Painel <span className="text-[#00D189] italic">Conexx Corporativo</span></h2>
           <p className="text-slate-500 font-bold italic tracking-wide">Visão consolidada de toda a infraestrutura e ecossistema de lojistas.</p>
         </div>
@@ -112,7 +119,16 @@ const AdminDashboard: React.FC = () => {
             Gerar Semanal
           </button>
 
-          <DateRangeFilter onFilterChange={handleFilterChange} />
+          <div className="hidden lg:block">
+            <DateRangeFilter onFilterChange={handleFilterChange} />
+          </div>
+
+          {mobileHeaderNode && createPortal(
+            <div className="lg:hidden">
+              <DateRangeFilter onFilterChange={handleFilterChange} />
+            </div>,
+            mobileHeaderNode
+          )}
         </div>
       </header>
 

@@ -255,7 +255,13 @@ const MainLayout = () => {
   return (
     <div className="flex flex-col lg:flex-row">
       {/* Mobile Top Header */}
-      <header className="lg:hidden h-16 bg-[#0a0a0a] border-b border-white/5 flex items-center justify-between px-5 sticky top-0 z-[50]">
+      <header
+        className="lg:hidden bg-[#0a0a0a] border-b border-white/5 flex items-center justify-between px-5 sticky top-0 z-[50]"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          height: 'calc(64px + env(safe-area-inset-top))'
+        }}
+      >
         <div className="flex items-center gap-2">
           <img src="/logo-conexx.png" alt="Conexx" className="h-6 w-auto object-contain" />
           <span className="text-base font-bold text-white italic">ConexaX</span>
