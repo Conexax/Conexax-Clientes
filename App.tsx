@@ -44,6 +44,7 @@ import TenantDetails from './pages/TenantDetails';
 import { NotificationProvider } from './context/NotificationContext';
 import ToastContainer from './components/ToastContainer';
 import NotificationCenter from './components/NotificationCenter';
+import ErrorBoundary from './components/ErrorBoundary';
 
 
 const SidebarItem: React.FC<{
@@ -230,7 +231,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[#0a0a2a] flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
           <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Carregando Sessão...</p>
@@ -325,14 +326,16 @@ const App: React.FC = () => {
       <NotificationProvider>
         <ToastContainer />
         <HashRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/*" element={
-              <ProtectedRoute>
-                <MainLayout />
-              </ProtectedRoute>
-            } />
-          </Routes>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/*" element={
+                <ProtectedRoute>
+                  <MainLayout />
+                </ProtectedRoute>
+              } />
+            </Routes>
+          </ErrorBoundary>
         </HashRouter>
       </NotificationProvider>
     </DataProvider>

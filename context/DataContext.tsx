@@ -312,8 +312,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             // Map Data
+            console.log("[restoreSession] Mapping user data for email:", user.email);
             const mappedUser = mapUserFromDB(user);
             const mappedTenant = tenant ? mapTenantFromDB(tenant) : null;
+            console.log("[restoreSession] User mapped. Role:", mappedUser.role);
 
             // Load context data based on role
             let allTenants: Tenant[] = [];
@@ -563,6 +565,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         localStorage.setItem('conexx_user_id', user.id); // Persist login
+        console.log("[loginAction] Session persisted. Navigating to dashboard.");
 
         setState(prev => ({
           ...prev,
@@ -575,8 +578,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           plans: (dbPlans || []).map(mapPlanFromDB) // Ensure Supabase wins
         }));
 
+        console.log("[loginAction] State updated successfully.");
         return true;
       } catch (err: any) {
+        console.error("[loginAction] Critical Error:", err);
         throw new Error(err.message || 'Falha no login.');
       }
     },
