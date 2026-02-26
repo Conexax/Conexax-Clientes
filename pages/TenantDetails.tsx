@@ -594,6 +594,14 @@ const TenantDetails: React.FC = () => {
                                         </select>
                                     </div>
                                     <div className="space-y-2 text-left">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase">Tipo de Negócio</label>
+                                        <select className="w-full bg-[#0a0a0a] border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all appearance-none" value={editFormData.businessType || 'e-commerce'} onChange={e => setEditFormData({ ...editFormData, businessType: e.target.value as any })}>
+                                            <option value="e-commerce">E-commerce Focus</option>
+                                            <option value="traffic-management">Gestão de Tráfego Só</option>
+                                            <option value="both">Híbrido (Ambos)</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2 text-left">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase">Comissão da Plataforma (%)</label>
                                         <input
                                             type="number"

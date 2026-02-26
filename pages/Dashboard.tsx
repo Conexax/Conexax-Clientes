@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell, PieChart, Pie, CartesianGrid, Legend } from 'recharts';
+import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell, PieChart, Pie, CartesianGrid, Legend } from 'recharts';
 import { useData } from '../context/DataContext';
 import { OrderStatus, Order } from '../types';
 
@@ -12,41 +12,21 @@ const formatCurrency = (val: number) => `R$ ${val.toLocaleString('pt-BR', { mini
 
 // --- Subcomponents ---
 
-const StatCard: React.FC<{
+const MetricCard: React.FC<{
   title: string;
-  value: string;
-  subValue?: string;
-  subValueColor?: string;
-  icon: string;
-  gradientFrom: string;
-  gradientTo: string;
-  iconColor: string;
-}> = ({ title, value, subValue, subValueColor = "text-emerald-400", icon, gradientFrom, gradientTo, iconColor }) => (
-  <div className={`relative overflow-hidden rounded-2xl p-6 border border-white/5 bg-gradient-to-br ${gradientFrom} ${gradientTo} shadow-lg transition-transform hover:-translate-y-1 duration-300`}>
-    <div className="flex justify-between items-start mb-4">
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center bg-black/20 shadow-inner backdrop-blur-md`}>
-        <span className={`material-symbols-outlined text-2xl ${iconColor}`}>{icon}</span>
-      </div>
-      <button className="text-slate-500 hover:text-white transition-colors">
-        <span className="material-symbols-outlined text-sm">more_horiz</span>
-      </button>
+  value: string | React.ReactNode;
+  titleColor?: string;
+  valueColor?: string;
+}> = ({ title, value, titleColor = "text-slate-400", valueColor = "text-white" }) => (
+  <div className="glass-panel rounded-[24px] p-6 border border-white/5 flex flex-col justify-between min-h-[110px] hover:border-primary/30 transition-all relative group overflow-hidden shadow-xl">
+    <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none group-hover:bg-primary/10 transition-colors"></div>
+    <div className="flex justify-between items-start mb-3 relative z-10">
+      <h4 className={`text-[12px] font-black uppercase tracking-widest ${titleColor}`}>{title}</h4>
+      <span className="material-symbols-outlined text-[16px] text-slate-500 cursor-help group-hover:text-primary transition-colors" title={`Métrica: ${title}`}>info</span>
     </div>
-
-    <div>
-      <h3 className="text-slate-400 font-medium text-sm mb-1">{title}</h3>
-      <div className="flex items-baseline gap-2">
-        <span className="text-3xl font-black text-white tracking-tight">{value}</span>
-        {subValue && (
-          <span className={`text-xs font-bold ${subValueColor} flex items-center`}>
-            {subValue.startsWith('+') ? <span className="material-symbols-outlined text-[12px]">trending_up</span> : subValue.startsWith('-') ? <span className="material-symbols-outlined text-[12px]">trending_down</span> : ''}
-            {subValue}
-          </span>
-        )}
-      </div>
+    <div className={`text-3xl font-black tracking-tight relative z-10 ${valueColor}`}>
+      {value}
     </div>
-
-    {/* Decorative background blur */}
-    <div className={`absolute -bottom-8 -right-8 w-32 h-32 rounded-full blur-3xl opacity-20 bg-white`}></div>
   </div>
 );
 
@@ -59,6 +39,7 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
   });
 
   const [mobileHeaderNode, setMobileHeaderNode] = useState<HTMLElement | null>(null);
+  const [adsMetrics, setAdsMetrics] = useState({ metaSpend: 0, googleSpend: 0, isLoading: false });
 
   // Fetch updated orders and goals when the component mounts
   useEffect(() => {
@@ -72,6 +53,38 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
     };
     loadGoals();
   }, [actions]);
+
+  // Fetch Ads Data for ROI/ROAS calculation
+  useEffect(() => {
+    const fetchAds = async () => {
+      setAdsMetrics(p => ({ ...p, isLoading: true }));
+      try {
+        const targetTenant = tenantId || state.currentUser?.tenantId;
+        const [metaRes, gaRes] = await Promise.allSettled([
+          fetch(`/api/analytics/meta/metrics?tenantId=${targetTenant}&startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`),
+          fetch(`/api/analytics/google/metrics?tenantId=${targetTenant}&startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`)
+        ]);
+
+        let mSpend = 0;
+        let gSpend = 0;
+
+        if (metaRes.status === 'fulfilled' && metaRes.value.ok) {
+          const j = await metaRes.value.json();
+          if (j.status === 'success' || j.status === 'mocked_success') mSpend = parseFloat(j.spend || 0);
+        }
+        if (gaRes.status === 'fulfilled' && gaRes.value.ok) {
+          const j = await gaRes.value.json();
+          if (j.status === 'success' || j.status === 'mocked_success') gSpend = parseFloat(j.spend || 0);
+        }
+
+        setAdsMetrics({ metaSpend: mSpend, googleSpend: gSpend, isLoading: false });
+      } catch (e) {
+        console.error("Erro ao buscar ads:", e);
+        setAdsMetrics({ metaSpend: 0, googleSpend: 0, isLoading: false });
+      }
+    };
+    if (state.currentUser) fetchAds();
+  }, [dateRange, tenantId, state.currentUser]);
 
   // --- Data Processing ---
 
@@ -97,6 +110,17 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
       return abandonDate >= new Date(dateRange.startDate) && abandonDate <= new Date(dateRange.endDate);
     });
   }, [state.abandonedCheckouts, dateRange, tenantId]);
+
+  // Combined calculations for the 8-card grid
+  const totalAdsSpend = adsMetrics.metaSpend + adsMetrics.googleSpend;
+  const taxaMetaAds = adsMetrics.metaSpend * 0.0438; // 4.38% IOF standard
+  const taxaGateway = periodRevenue * 0.05; // 5% gateway/plataforma standard assumed
+
+  const lucroLiquido = periodRevenue - totalAdsSpend - taxaMetaAds - taxaGateway;
+
+  const roas = totalAdsSpend > 0 ? periodRevenue / totalAdsSpend : 0;
+  const roi = totalAdsSpend > 0 ? lucroLiquido / totalAdsSpend : 0;
+  const margem = periodRevenue > 0 ? (lucroLiquido / periodRevenue) * 100 : 0;
 
   // Payment method data for PieChart
   const canonicalMethods = ['PIX', 'Cartão', 'Boleto'];
@@ -183,18 +207,40 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
       return (
         <div className="bg-[#111] border border-white/10 p-4 rounded-xl shadow-xl">
           <p className="text-slate-400 font-medium mb-3 border-b border-white/10 pb-2">{label}</p>
-          {payload.map((entry: any, index: number) => (
-            <div key={index} className="flex justify-between items-center gap-6 mb-1 text-sm">
-              <span className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }}></span>
-                <span className="text-slate-300">{entry.name}</span>
-              </span>
-              <span className="text-white font-bold">{formatCurrency(entry.value)}</span>
-            </div>
-          ))}
+          {payload.map((entry: any, index: number) => {
+            // If we just mapped 'total', we still want to show the breakdown if available
+            const { pix, cartao, boleto } = entry.payload;
+            if (entry.dataKey === 'total') {
+              return (
+                <div key={index}>
+                  <div className="flex justify-between items-center gap-6 mb-1 text-sm opacity-80">
+                    <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500"></span><span className="text-slate-300">PIX</span></span>
+                    <span className="text-white">{formatCurrency(pix || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center gap-6 mb-1 text-sm opacity-80">
+                    <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500"></span><span className="text-slate-300">Cartão</span></span>
+                    <span className="text-white">{formatCurrency(cartao || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center gap-6 mb-1 text-sm opacity-80">
+                    <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500"></span><span className="text-slate-300">Boleto</span></span>
+                    <span className="text-white">{formatCurrency(boleto || 0)}</span>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div key={index} className="flex justify-between items-center gap-6 mb-1 text-sm">
+                <span className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }}></span>
+                  <span className="text-slate-300">{entry.name}</span>
+                </span>
+                <span className="text-white font-bold">{formatCurrency(entry.value)}</span>
+              </div>
+            );
+          })}
           <div className="flex justify-between items-center gap-6 mt-3 pt-2 border-t border-white/10 font-black text-[15px]">
             <span className="text-slate-300">Total</span>
-            <span className="text-emerald-400">{formatCurrency(total)}</span>
+            <span className="text-primary">{formatCurrency(payload[0]?.payload?.total || total)}</span>
           </div>
         </div>
       );
@@ -251,44 +297,47 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
         </div>
       </header>
 
-      {/* Hero Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard
-          title="Receita Líquida"
+      {/* Core 8-Card Metrics Grid (UTMFY-style) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <MetricCard
+          title="Faturamento Líquido Total"
           value={formatCurrency(periodRevenue)}
-          subValue="+12,5%" // Mocked trend
-          icon="attach_money"
-          gradientFrom="from-[#0f172a]"
-          gradientTo="to-[#020617]"
-          iconColor="text-emerald-400"
         />
-        <StatCard
-          title="Pedidos Aprovados"
-          value={approvedOrders.length.toString()}
-          icon="shopping_bag"
-          gradientFrom="from-[#1e1b4b]"
-          gradientTo="to-[#0a0f25]"
-          iconColor="text-indigo-400"
+        <MetricCard
+          title="Gastos com anúncios"
+          value={adsMetrics.isLoading ? <span className="material-symbols-outlined animate-spin text-[18px]">sync</span> : formatCurrency(totalAdsSpend)}
         />
-        <StatCard
-          title="Ticket Médio"
-          value={formatCurrency(ticketMedio)}
-          subValue={approvedOrders.length > 0 ? "Normal" : ""}
-          subValueColor="text-blue-400"
-          icon="receipt_long"
-          gradientFrom="from-[#0f172a]"
-          gradientTo="to-[#020617]"
-          iconColor="text-blue-400"
+        <MetricCard
+          title="Imposto Meta Ads"
+          value={adsMetrics.isLoading ? '...' : formatCurrency(taxaMetaAds)}
         />
-        <StatCard
+        <MetricCard
           title="Abandonos de Carrinho"
           value={filteredAbandoned.length.toString()}
-          subValue="Atenção"
-          subValueColor="text-amber-500"
-          icon="remove_shopping_cart"
-          gradientFrom="from-[#271011]"
-          gradientTo="to-[#0f0a0a]"
-          iconColor="text-rose-500"
+          valueColor="text-white"
+        />
+
+        <MetricCard
+          title="ROAS"
+          value={adsMetrics.isLoading ? '...' : roas.toFixed(2)}
+          titleColor="text-emerald-500"
+          valueColor="text-emerald-500"
+        />
+        <MetricCard
+          title="ROI"
+          value={adsMetrics.isLoading ? '...' : roi.toFixed(2)}
+          titleColor="text-emerald-500"
+          valueColor="text-emerald-500"
+        />
+        <MetricCard
+          title="Taxas"
+          value={formatCurrency(taxaGateway)}
+        />
+        <MetricCard
+          title="Margem"
+          value={adsMetrics.isLoading ? '...' : `${margem.toFixed(1)}%`}
+          titleColor="text-emerald-500"
+          valueColor="text-emerald-500"
         />
       </div>
 
@@ -315,7 +364,13 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
 
             <div className="flex-1 w-full min-h-0">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartDataMap} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <AreaChart data={chartDataMap} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#00D189" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#00D189" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff10" />
                   <XAxis
                     dataKey="dateLabel"
@@ -331,12 +386,9 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
                     tickFormatter={(val) => `${val >= 1000 ? (val / 1000).toFixed(0) + 'k' : val}`}
                     dx={-10}
                   />
-                  <Tooltip content={<CustomTooltipContent />} cursor={{ fill: '#ffffff05' }} />
-
-                  <Bar dataKey="pix" name="PIX" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} />
-                  <Bar dataKey="cartao" name="Cartão" stackId="a" fill="#10b981" />
-                  <Bar dataKey="boleto" name="Boleto" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                </BarChart>
+                  <Tooltip content={<CustomTooltipContent />} cursor={{ stroke: '#ffffff20', strokeWidth: 1 }} />
+                  <Area type="monotone" dataKey="total" name="Receita Total" stroke="#00D189" strokeWidth={3} fillOpacity={1} fill="url(#colorTotal)" />
+                </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>

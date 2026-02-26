@@ -228,9 +228,9 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex items-center shrink-0">
-                  <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${t.yampiToken ? 'bg-[#00D189]/10 text-[#00D189]' : 'bg-rose-500/10 text-rose-500'}`}>
+                  <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${t.businessType === 'traffic-management' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-[#00D189]/10 text-[#00D189]'}`}>
                     <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-                    {t.yampiToken ? 'YAMPI OK' : 'S/ CONEXÃO'}
+                    {t.businessType === 'traffic-management' ? 'TRÁFEGO' : 'E-COMMERCE'}
                   </span>
                 </div>
               </div>

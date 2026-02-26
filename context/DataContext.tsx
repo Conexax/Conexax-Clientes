@@ -92,7 +92,8 @@ const mapTenantFromDB = (dbTenant: any): Tenant => ({
   metaAccessToken: dbTenant.meta_access_token,
   metaAdAccountId: dbTenant.meta_ad_account_id,
   ga4MeasurementId: dbTenant.ga4_measurement_id,
-  gaCredentials: dbTenant.ga_credentials
+  gaCredentials: dbTenant.ga_credentials,
+  businessType: dbTenant.business_type || 'e-commerce'
 });
 
 const mapUserFromDB = (dbUser: any): User => ({
@@ -247,7 +248,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     settings: { companyName: "Conexx Hub", supportEmail: "suporte@conexx.com.br", description: "", darkMode: true, currency: "BRL" },
     asaasConfig: { api_key: '', environment: 'sandbox', webhook_secret: '' },
     products: [],
+    sales: [],
+    incomes: [],
+    outcomes: [],
     categories: [],
+    team: [],
     goalsProgress: null,
     asaasSubscriptions: [],
     asaasCustomers: [],
@@ -790,7 +795,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           meta_access_token: data.metaAccessToken,
           meta_ad_account_id: data.metaAdAccountId,
           ga4_measurement_id: data.ga4MeasurementId,
-          ga_credentials: data.gaCredentials
+          ga_credentials: data.gaCredentials,
+          business_type: data.businessType || 'e-commerce'
         };
 
         Object.keys(tenantPayload).forEach(key => tenantPayload[key] === undefined && delete tenantPayload[key]);
@@ -850,6 +856,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (data.metaAdAccountId !== undefined) extrasPayload.meta_ad_account_id = data.metaAdAccountId;
           if (data.ga4MeasurementId !== undefined) extrasPayload.ga4_measurement_id = data.ga4MeasurementId;
           if (data.gaCredentials !== undefined) extrasPayload.ga_credentials = data.gaCredentials;
+          if (data.businessType !== undefined) extrasPayload.business_type = data.businessType;
 
           if (Object.keys(extrasPayload).length > 0) {
             await supabase.from('tenants').update(extrasPayload).eq('id', tenantId);
@@ -899,12 +906,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (data.password) userPayload.password = data.password;
 
-          if (existingUser) {
+          // If the user already exists AND belongs to this tenant, update them
+          if (existingUser && existingUser.tenant_id === tenantId) {
             const { error: userError } = await supabase.from('users').update(userPayload).eq('id', existingUser.id);
-            if (userError) throw new Error(`Erro ao atualizar usuário vinculada: ${userError.message}`);
+            if (userError) throw new Error(`Erro ao atualizar usuário vinculado: ${userError.message}`);
           } else {
-            const { error: userError } = await supabase.from('users').insert({ ...userPayload, password: data.password || '123456' });
-            if (userError) throw new Error(`Erro ao criar usuário: ${userError.message}`);
+            // Find if there's an existing user for THIS tenant to update its email, rather than relying on the email search
+            const { data: tenantUser } = await supabase.from('users').select('*').eq('tenant_id', tenantId).eq('role', UserRole.CLIENT_ADMIN).single();
+
+            if (tenantUser) {
+              const { error: userError } = await supabase.from('users').update(userPayload).eq('id', tenantUser.id);
+              if (userError) throw new Error(`Erro ao atualizar email do usuário: ${userError.message}`);
+            } else {
+              const { error: userError } = await supabase.from('users').insert({ ...userPayload, password: data.password || '123456' });
+              if (userError) throw new Error(`Erro ao criar usuário: ${userError.message}`);
+            }
           }
         }
 
@@ -1007,14 +1023,36 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Clean undefined values
         Object.keys(payload).forEach(key => payload[key] === undefined && delete payload[key]);
 
-        // Debug: log payload
-        console.debug('savePlan payload', payload);
+        console.debug('savePlan payload via API', payload);
 
-        const { data, error } = await supabase.from('plans').upsert(payload).select().single();
-        if (error) throw error;
+        const res = await fetch('/api/admin/plans', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
 
-        // Note: Real-time listener will trigger syncAllPlans() automatically
-        return mapPlanFromDB(data);
+        if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error('Servidor backend não atualizado (Erro 404). Reinicie o terminal do servidor backend (Node) para aplicar as novas rotas!');
+          }
+          let errData;
+          try { errData = await res.json(); } catch { throw new Error('Erro de comunicação com o servidor. Tente reiniciar o backend.'); }
+          throw new Error(errData?.error || 'Erro ao salvar plano na API.');
+        }
+
+        const data = await res.json();
+        const mappedPlan = mapPlanFromDB(data);
+
+        // Update local state immediately in case real-time listener is not configured
+        setState(prev => {
+          const exists = prev.plans.find(p => p.id === mappedPlan.id);
+          if (exists) {
+            return { ...prev, plans: prev.plans.map(p => p.id === mappedPlan.id ? mappedPlan : p) };
+          }
+          return { ...prev, plans: [...prev.plans, mappedPlan] };
+        });
+
+        return mappedPlan;
       } catch (e: any) {
         console.error('savePlan error', e);
         setSyncError(e.message || "Falha ao salvar plano.");
@@ -1024,9 +1062,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     deletePlan: async (id: string) => {
       setIsSyncing(true);
       try {
-        const { error } = await supabase.from('plans').delete().eq('id', id);
-        if (error) throw error;
-        // Real-time listener will handle local state update
+        const res = await fetch(`/api/admin/plans/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error('Servidor backend não atualizado (Erro 404). Reinicie o terminal do servidor backend (Node) para aplicar as novas rotas!');
+          }
+          let errData;
+          try { errData = await res.json(); } catch { throw new Error('Erro de comunicação com o servidor. Tente reiniciar o backend.'); }
+          throw new Error(errData?.error || 'Erro ao excluir plano na API.');
+        }
+
+        // Update local state immediately
+        setState(prev => ({ ...prev, plans: prev.plans.filter(p => p.id !== id) }));
       } catch (e: any) {
         console.error(e);
         setSyncError(e.message || "Falha ao excluir plano.");
@@ -1425,6 +1472,48 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw err;
       } finally {
         setIsLoading(false);
+      }
+    },
+
+    // Team Management
+    fetchTeam: async () => {
+      if (!state.activeTenant) return;
+      try {
+        const response = await fetch(`/api/team/${state.activeTenant.id}`);
+        const data = await response.json();
+        if (response.ok) {
+          setState(prev => ({ ...prev, team: data }));
+        }
+      } catch (err) {
+        console.error('Fetch team err:', err);
+      }
+    },
+    addTeamMember: async (payload: any) => {
+      try {
+        const response = await fetch('/api/team', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, tenantId: state.activeTenant?.id })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Erro ao adicionar membro.');
+        setState(prev => ({ ...prev, team: [...(prev.team || []), data] }));
+      } catch (err: any) {
+        console.error(err);
+        throw err;
+      }
+    },
+    deleteTeamMember: async (userId: string) => {
+      try {
+        const response = await fetch(`/api/team/${userId}`, { method: 'DELETE' });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Erro ao remover membro.');
+        }
+        setState(prev => ({ ...prev, team: (prev.team || []).filter((u: any) => u.id !== userId) }));
+      } catch (err: any) {
+        console.error(err);
+        throw err;
       }
     },
 

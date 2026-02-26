@@ -89,6 +89,7 @@ export interface Tenant {
   metaAdAccountId?: string;
   ga4MeasurementId?: string;
   gaCredentials?: any;
+  businessType?: 'e-commerce' | 'traffic-management' | 'both';
 }
 
 export interface Domain {

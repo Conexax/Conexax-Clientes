@@ -190,28 +190,45 @@ const BillingPlans: React.FC = () => {
             </h3>
             <p className="text-slate-400 text-lg mb-10">Veja os valores do plano e escolha a melhor opção para o seu negócio.</p>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="flex overflow-x-auto pt-6 pb-8 md:grid md:grid-cols-3 gap-6 snap-x snap-mandatory scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0">
               {[
                 {
                   id: 'quarterly', label: 'Trimestral',
                   price: selectedPlanForPeriodicity.priceQuarterly,
-                  desc: selectedPlanForPeriodicity.descriptionQuarterly,
+                  desc: selectedPlanForPeriodicity.descriptionQuarterly || (
+                    (selectedPlanForPeriodicity.trafficFeePercentQuarterly || selectedPlanForPeriodicity.trafficFeePercent)
+                      ? `${selectedPlanForPeriodicity.trafficFeePercentQuarterly || selectedPlanForPeriodicity.trafficFeePercent}% das vendas realizadas através do tráfego pago`
+                      : ''
+                  ),
                   months: 3, installments: 6
                 },
                 {
                   id: 'semiannual', label: 'Semestral',
                   price: selectedPlanForPeriodicity.priceSemiannual,
-                  desc: selectedPlanForPeriodicity.descriptionSemiannual,
+                  desc: selectedPlanForPeriodicity.descriptionSemiannual || (
+                    (selectedPlanForPeriodicity.trafficFeePercentSemiannual || selectedPlanForPeriodicity.trafficFeePercent)
+                      ? `${selectedPlanForPeriodicity.trafficFeePercentSemiannual || selectedPlanForPeriodicity.trafficFeePercent}% das vendas realizadas através do tráfego pago`
+                      : ''
+                  ),
                   months: 6, installments: 12
                 },
                 {
                   id: 'yearly', label: 'Anual',
                   price: selectedPlanForPeriodicity.priceYearly,
-                  desc: selectedPlanForPeriodicity.descriptionYearly,
+                  desc: selectedPlanForPeriodicity.descriptionYearly || (
+                    (selectedPlanForPeriodicity.trafficFeePercentYearly || selectedPlanForPeriodicity.trafficFeePercent)
+                      ? `${selectedPlanForPeriodicity.trafficFeePercentYearly || selectedPlanForPeriodicity.trafficFeePercent}% das vendas realizadas através do tráfego pago`
+                      : ''
+                  ),
                   months: 12, installments: 12
                 }
               ].map(cycle => (
-                <div key={cycle.id} className="bg-black border border-white/5 rounded-3xl p-8 hover:border-[#1e2a22] transition-colors flex flex-col">
+                <div key={cycle.id} className={`min-w-[85vw] md:min-w-0 snap-center bg-black border ${cycle.id === 'yearly' ? 'border-[#65cba0]/50 shadow-[0_0_30px_rgba(101,203,160,0.15)] mt-4 md:mt-0 pt-10 md:pt-8' : 'border-white/5'} rounded-3xl p-8 hover:border-[#1e2a22] transition-all flex flex-col relative`}>
+                  {cycle.id === 'yearly' && (
+                    <div className="absolute -top-4 md:-top-3 left-1/2 -translate-x-1/2 bg-[#65cba0] text-black text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full whitespace-nowrap z-10">
+                      Melhor Custo Benefício
+                    </div>
+                  )}
                   <h4 className="text-xl font-extrabold text-white mb-4">{cycle.label}</h4>
 
                   <div className="flex items-baseline gap-2 text-[#65cba0]">
@@ -222,7 +239,7 @@ const BillingPlans: React.FC = () => {
                   </div>
 
                   <p className="mt-4 text-xs font-bold text-slate-300 leading-relaxed min-h-[40px]">
-                    + {cycle.desc}
+                    {cycle.desc ? `+ ${cycle.desc}` : ''}
                   </p>
 
                   <div className="mt-6 space-y-1">
@@ -230,9 +247,11 @@ const BillingPlans: React.FC = () => {
                     <p className="text-xs text-slate-500">Em até {cycle.installments}x no cartão</p>
                   </div>
 
-                  <p className="mt-4 text-[#65cba0] font-black text-xs">
-                    + R$ 1.000,00 em anúncios
-                  </p>
+                  {selectedPlanForPeriodicity.adCredit > 0 && (
+                    <p className="mt-4 text-[#65cba0] font-black text-xs">
+                      + R$ {selectedPlanForPeriodicity.adCredit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em anúncios
+                    </p>
+                  )}
 
                   <div className="flex-1"></div>
 

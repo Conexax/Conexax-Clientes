@@ -37,7 +37,7 @@ const PreCheckout: React.FC<PreCheckoutProps> = ({ plan, billingCycle, onClose, 
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
             {/* Sheet / Modal Content */}
-            <div className="relative z-10 w-full lg:max-w-4xl bg-[#0A0A0A] lg:bg-transparent rounded-t-3xl lg:rounded-none h-[90vh] lg:h-auto overflow-y-auto lg:overflow-visible p-6 lg:p-0 shadow-2xl lg:shadow-none border-t border-white/10 lg:border-none transition-all duration-300 ease-out translate-y-0">
+            <div className="relative z-10 w-full lg:max-w-4xl bg-[#050505] lg:rounded-[40px] rounded-t-[40px] border border-[#1e2a22] h-[90vh] lg:h-auto overflow-y-auto p-8 lg:p-12 shadow-2xl transition-all duration-300 ease-out translate-y-0">
 
                 {/* Mobile Drag Handle */}
                 <div className="w-12 h-1.5 bg-zinc-800 rounded-full mx-auto mb-8 lg:hidden shrink-0" />

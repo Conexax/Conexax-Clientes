@@ -95,7 +95,7 @@ const TenantManagement: React.FC = () => {
               <tr>
                 <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30">Lojista</th>
                 <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30">Proprietário</th>
-                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30">Status Conexão</th>
+                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30">Tipo de Negócio</th>
                 <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-500 underline decoration-primary/30">Documento / PJ</th>
               </tr>
             </thead>
@@ -118,9 +118,9 @@ const TenantManagement: React.FC = () => {
                   <td className="px-8 py-6 text-sm text-slate-400 italic">{t.ownerEmail}</td>
                   <td className="px-8 py-6">
                     <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${t.yampiOauthAccessToken ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : t.yampiToken ? 'bg-primary shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]'}`} />
-                      <span className={`text-[10px] font-black uppercase tracking-tighter ${t.yampiOauthAccessToken ? 'text-emerald-500' : t.yampiToken ? 'text-primary' : 'text-rose-500'}`}>
-                        {t.yampiOauthAccessToken ? 'OAUTH CONECTADO' : t.yampiToken ? 'TOKEN LEGADO' : 'AGUARDANDO SYNC'}
+                      <div className={`w-2 h-2 rounded-full ${t.businessType === 'traffic-management' ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.4)]' : t.businessType === 'both' ? 'bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.4)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]'}`} />
+                      <span className={`text-[10px] font-black uppercase tracking-tighter ${t.businessType === 'traffic-management' ? 'text-blue-500' : t.businessType === 'both' ? 'text-purple-500' : 'text-emerald-500'}`}>
+                        {t.businessType === 'traffic-management' ? 'GESTÃO DE TRÁFEGO' : t.businessType === 'both' ? 'HÍBRIDO (AMBOS)' : 'E-COMMERCE'}
                       </span>
                     </div>
                   </td>
@@ -159,11 +159,11 @@ const TenantManagement: React.FC = () => {
               </div>
 
               <div className="flex justify-between items-center bg-black/20 p-4 rounded-xl border border-white/5">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Status de Integração</span>
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tipo de Negócio</span>
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${t.yampiToken ? 'bg-primary shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]'}`} />
-                  <span className={`text-[10px] font-black uppercase tracking-widest ${t.yampiToken ? 'text-primary' : 'text-rose-500'}`}>
-                    {t.yampiToken ? 'CONECTADO' : 'PENDENTE'}
+                  <div className={`w-2 h-2 rounded-full ${t.businessType === 'traffic-management' ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.4)]' : t.businessType === 'both' ? 'bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.4)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]'}`} />
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${t.businessType === 'traffic-management' ? 'text-blue-500' : t.businessType === 'both' ? 'text-purple-500' : 'text-emerald-500'}`}>
+                    {t.businessType === 'traffic-management' ? 'GESTÃO DE TRÁFEGO' : t.businessType === 'both' ? 'HÍBRIDO' : 'E-COMMERCE'}
                   </span>
                 </div>
               </div>
@@ -224,6 +224,14 @@ const TenantManagement: React.FC = () => {
                       {state.plans.map(p => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Tipo de Negócio</label>
+                    <select className="w-full bg-[#0a0a0a] border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all appearance-none" value={formData.businessType || 'e-commerce'} onChange={e => setFormData({ ...formData, businessType: e.target.value as any })}>
+                      <option value="e-commerce">E-commerce Focus</option>
+                      <option value="traffic-management">Gestão de Tráfego Só</option>
+                      <option value="both">Híbrido (Ambos)</option>
                     </select>
                   </div>
                   <div className="space-y-2">

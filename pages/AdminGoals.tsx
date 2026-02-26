@@ -6,8 +6,25 @@ import GoalProgressBar from '../components/GoalProgressBar';
 const AdminGoals: React.FC = () => {
     const { state } = useData();
 
-    // Sort tenants by revenue (descending) by default
-    const sortedTenants = [...state.tenants].sort((a, b) => (b.cachedGrossRevenue || 0) - (a.cachedGrossRevenue || 0));
+    // Sort tenants by revenue (descending) by default, excluding traffic-only
+    const sortedTenants = [...state.tenants]
+        .filter(t => t.businessType !== 'traffic-management')
+        .sort((a, b) => (b.cachedGrossRevenue || 0) - (a.cachedGrossRevenue || 0));
+
+    // Calculate tiers
+    const topTenant = sortedTenants.length > 0 ? sortedTenants[0] : null;
+    let tier1 = 0; // 0 to 10k
+    let tier2 = 0; // 10k to 100k
+    let tier3 = 0; // 100k to 1M
+    let tier4 = 0; // > 1M
+
+    sortedTenants.forEach(t => {
+        const rev = t.cachedGrossRevenue || 0;
+        if (rev <= 10000) tier1++;
+        else if (rev <= 100000) tier2++;
+        else if (rev <= 1000000) tier3++;
+        else tier4++;
+    });
 
     return (
         <div className="space-y-8">
@@ -15,6 +32,66 @@ const AdminGoals: React.FC = () => {
                 <h2 className="text-3xl font-black text-white">Monitoramento de Metas</h2>
                 <p className="text-slate-500 text-sm font-medium">Acompanhe o progresso de faturamento de todos os lojistas.</p>
             </header>
+
+            {/* Resumo de Faturamento (Cards) */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="glass-panel rounded-[24px] p-6 border border-primary/20 flex flex-col justify-between hover:border-primary/40 transition-all relative overflow-hidden group shadow-xl">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-primary/20 transition-colors"></div>
+                    <div className="flex justify-between items-start mb-4 relative z-10">
+                        <h4 className="flex items-center gap-2 text-[12px] font-black text-primary uppercase tracking-widest"><span className="material-symbols-outlined text-[16px]">workspace_premium</span> Top 1 Lojista</h4>
+                    </div>
+                    <div className="relative z-10">
+                        <p className="text-[16px] font-black text-white truncate" title={topTenant?.name || ''}>{topTenant?.name || '---'}</p>
+                        <p className="text-xl font-black text-emerald-400 mt-1">
+                            {topTenant ? `R$ ${(topTenant.cachedGrossRevenue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '---'}
+                        </p>
+                    </div>
+                </div>
+
+                <div className="glass-panel rounded-[24px] p-6 border border-white/5 flex flex-col justify-between hover:border-slate-500/30 transition-all relative overflow-hidden group shadow-xl">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-white/10 transition-colors"></div>
+                    <div className="flex justify-between items-start mb-4 relative z-10">
+                        <h4 className="text-[12px] font-black text-slate-400 uppercase tracking-widest">Até R$ 10k</h4>
+                    </div>
+                    <div className="relative z-10">
+                        <p className="text-4xl font-black text-white">{tier1}</p>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Lojistas</p>
+                    </div>
+                </div>
+
+                <div className="glass-panel rounded-[24px] p-6 border border-white/5 flex flex-col justify-between hover:border-slate-500/30 transition-all relative overflow-hidden group shadow-xl">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-white/10 transition-colors"></div>
+                    <div className="flex justify-between items-start mb-4 relative z-10">
+                        <h4 className="text-[12px] font-black text-slate-400 uppercase tracking-widest">R$ 10k - 100k</h4>
+                    </div>
+                    <div className="relative z-10">
+                        <p className="text-4xl font-black text-white">{tier2}</p>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Lojistas</p>
+                    </div>
+                </div>
+
+                <div className="glass-panel rounded-[24px] p-6 border border-white/5 flex flex-col justify-between hover:border-slate-500/30 transition-all relative overflow-hidden group shadow-xl">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-white/10 transition-colors"></div>
+                    <div className="flex justify-between items-start mb-4 relative z-10">
+                        <h4 className="text-[12px] font-black text-slate-400 uppercase tracking-widest">R$ 100k - 1M</h4>
+                    </div>
+                    <div className="relative z-10">
+                        <p className="text-4xl font-black text-white">{tier3}</p>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Lojistas</p>
+                    </div>
+                </div>
+
+                <div className="glass-panel rounded-[24px] p-6 border border-amber-500/20 flex flex-col justify-between hover:border-amber-500/40 transition-all relative overflow-hidden group shadow-xl">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-amber-500/20 transition-colors"></div>
+                    <div className="flex justify-between items-start mb-4 relative z-10">
+                        <h4 className="flex items-center gap-2 text-[12px] font-black text-amber-500 uppercase tracking-widest"><span className="material-symbols-outlined text-[16px]">rocket_launch</span> Acima R$ 1M</h4>
+                    </div>
+                    <div className="relative z-10">
+                        <p className="text-4xl font-black text-white drop-shadow-lg">{tier4}</p>
+                        <p className="text-[10px] text-amber-500/70 font-bold uppercase tracking-widest mt-1">Lojistas</p>
+                    </div>
+                </div>
+            </div>
 
             <div className="glass-panel rounded-2xl overflow-hidden">
                 <div className="overflow-x-auto">

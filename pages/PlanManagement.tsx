@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { Plan } from '../types';
+import toast from 'react-hot-toast';
 
 
 const PlanManagement: React.FC = () => {
@@ -88,10 +89,15 @@ const PlanManagement: React.FC = () => {
     setFormData({ ...formData, features: (formData.features || []).filter((_, i) => i !== index) });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    actions.savePlan(formData as Plan);
-    setShowModal(false);
+    try {
+      await actions.savePlan(formData as Plan);
+      toast.success('Plano salvo com sucesso!');
+      setShowModal(false);
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao salvar plano.');
+    }
   };
 
   return (
@@ -120,7 +126,7 @@ const PlanManagement: React.FC = () => {
                   <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Semestral: R$ {plan.priceSemiannual}</p>
                   <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Anual: R$ {plan.priceYearly}</p>
                   <div className="flex gap-2 mt-2">
-                    <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold rounded">+ {plan.trafficFeePercent}% Taxa</span>
+                    <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold rounded">+ {plan.trafficFeePercentQuarterly || plan.trafficFeePercentSemiannual || plan.trafficFeePercentYearly || plan.trafficFeePercent || 0}% Taxa</span>
                     <span className="px-2 py-0.5 bg-white/5 text-slate-300 text-[10px] font-bold rounded">Até {plan.installments}x</span>
                     {plan.adCredit && plan.adCredit > 0 && (
                       <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[10px] font-bold rounded">R$ {plan.adCredit} Ads</span>
@@ -207,7 +213,14 @@ const PlanManagement: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TAXA TRÁFEGO (%)</label>
-                    <input type="number" step="0.1" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.trafficFeePercentQuarterly || ''} onChange={e => setFormData({ ...formData, trafficFeePercentQuarterly: parseFloat(e.target.value) })} />
+                    <input type="number" step="0.1" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.trafficFeePercentQuarterly || ''} onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      setFormData({
+                        ...formData,
+                        trafficFeePercentQuarterly: val,
+                        descriptionQuarterly: e.target.value ? `${e.target.value}% das vendas realizadas através do tráfego pago` : ''
+                      });
+                    }} />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">CRÉDITO ADS (R$)</label>
@@ -235,7 +248,14 @@ const PlanManagement: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TAXA TRÁFEGO (%)</label>
-                    <input type="number" step="0.1" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.trafficFeePercentSemiannual || ''} onChange={e => setFormData({ ...formData, trafficFeePercentSemiannual: parseFloat(e.target.value) })} />
+                    <input type="number" step="0.1" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.trafficFeePercentSemiannual || ''} onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      setFormData({
+                        ...formData,
+                        trafficFeePercentSemiannual: val,
+                        descriptionSemiannual: e.target.value ? `${e.target.value}% das vendas realizadas através do tráfego pago` : ''
+                      });
+                    }} />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">CRÉDITO ADS (R$)</label>
@@ -265,7 +285,14 @@ const PlanManagement: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TAXA TRÁFEGO (%)</label>
-                    <input type="number" step="0.1" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.trafficFeePercentYearly || ''} onChange={e => setFormData({ ...formData, trafficFeePercentYearly: parseFloat(e.target.value) })} />
+                    <input type="number" step="0.1" className="w-full bg-[#050505] border border-[#1e2a22] rounded-xl px-4 py-3 text-sm text-white focus:border-[#00D189] focus:outline-none transition-colors" value={formData.trafficFeePercentYearly || ''} onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      setFormData({
+                        ...formData,
+                        trafficFeePercentYearly: val,
+                        descriptionYearly: e.target.value ? `${e.target.value}% das vendas realizadas através do tráfego pago` : ''
+                      });
+                    }} />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">CRÉDITO ADS (R$)</label>

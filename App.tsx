@@ -35,7 +35,7 @@ import UpgradeSuccess from './pages/UpgradeSuccess';
 import UpgradeError from './pages/UpgradeError';
 import Subscriptions from './pages/Subscriptions';
 import SubscriptionDetails from './pages/SubscriptionDetails';
-
+import TeamManagement from './pages/TeamManagement';
 import ConfirmPayment from './pages/ConfirmPayment';
 import WeeklyFees from './pages/WeeklyFees';
 import AdminMetrics from './pages/AdminMetrics';
@@ -102,6 +102,7 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
   const currentPath = location.pathname.substring(1) || 'dashboard';
   const { state, actions } = useData();
   const isAdmin = state.currentUser?.role === UserRole.CONEXX_ADMIN;
+  const isTrafficOnly = state.activeTenant?.businessType === 'traffic-management';
 
   const [openGroup, setOpenGroup] = React.useState<string | null>(() => {
     // Try to auto-open the group containing the current path
@@ -164,23 +165,31 @@ const Sidebar: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, o
               <>
                 <SidebarItem to="/" icon="dashboard" label="Dashboard" active={currentPath === ''} onClick={onClose} />
 
-                <SidebarGroup label="Vendas & Mkt" icon="campaign" isOpen={openGroup === 'sales'} onToggle={() => toggleGroup('sales')}>
-                  <SidebarItem to="/orders" icon="shopping_bag" label="Vendas Live" active={currentPath === 'orders'} onClick={onClose} />
-                  <SidebarItem to="/faturamento/ads" icon="monitoring" label="Tráfego & Ads" active={currentPath === 'faturamento/ads'} onClick={onClose} />
-                  <SidebarItem to="/marketing" icon="celebration" label="Influenciadores" active={currentPath === 'marketing'} onClick={onClose} />
-                  <SidebarItem to="/automations" icon="hub" label="Automações SMS" active={currentPath === 'automations'} onClick={onClose} />
-                </SidebarGroup>
+                {!isTrafficOnly && (
+                  <SidebarGroup label="Vendas & Mkt" icon="campaign" isOpen={openGroup === 'sales'} onToggle={() => toggleGroup('sales')}>
+                    <SidebarItem to="/orders" icon="shopping_bag" label="Vendas Live" active={currentPath === 'orders'} onClick={onClose} />
+                    <SidebarItem to="/faturamento/ads" icon="monitoring" label="Tráfego & Ads" active={currentPath === 'faturamento/ads'} onClick={onClose} />
+                    <SidebarItem to="/marketing" icon="celebration" label="Influenciadores" active={currentPath === 'marketing'} onClick={onClose} />
+                    <SidebarItem to="/automations" icon="hub" label="Automações SMS" active={currentPath === 'automations'} onClick={onClose} />
+                  </SidebarGroup>
+                )}
 
-                <SidebarGroup label="Operações" icon="inventory_2" isOpen={openGroup === 'operations'} onToggle={() => toggleGroup('operations')}>
-                  <SidebarItem to="/logistics" icon="local_shipping" label="Logística" active={currentPath === 'logistics'} onClick={onClose} />
-                  <SidebarItem to="/abandoned-carts" icon="shopping_cart_checkout" label="Carrinhos" active={currentPath === 'abandoned-carts'} onClick={onClose} />
-                  <SidebarItem to="/products" icon="inventory_2" label="Produtos" active={currentPath === 'products'} onClick={onClose} />
+                {!isTrafficOnly && (
+                  <SidebarGroup label="Operações" icon="inventory_2" isOpen={openGroup === 'operations'} onToggle={() => toggleGroup('operations')}>
+                    <SidebarItem to="/logistics" icon="local_shipping" label="Logística" active={currentPath === 'logistics'} onClick={onClose} />
+                    <SidebarItem to="/abandoned-carts" icon="shopping_cart_checkout" label="Carrinhos" active={currentPath === 'abandoned-carts'} onClick={onClose} />
+                    <SidebarItem to="/products" icon="inventory_2" label="Produtos" active={currentPath === 'products'} onClick={onClose} />
+                  </SidebarGroup>
+                )}
+
+                <SidebarGroup label="Configurações" icon="settings" isOpen={openGroup === 'settings'} onToggle={() => toggleGroup('settings')}>
+                  <SidebarItem to="/team" icon="group" label="Equipe" active={currentPath === 'team'} onClick={onClose} />
                 </SidebarGroup>
 
                 <SidebarGroup label="Financeiro & Web" icon="language" isOpen={openGroup === 'financial'} onToggle={() => toggleGroup('financial')}>
                   <SidebarItem to="/plans" icon="credit_card" label="Planos & Cobrança" active={currentPath === 'plans'} onClick={onClose} />
-                  <SidebarItem to="/pagamentos-semanais" icon="payments" label="Taxas Semanais" active={currentPath === 'pagamentos-semanais'} onClick={onClose} />
-                  <SidebarItem to="/domains" icon="language" label="Domínios & Web" active={currentPath === 'domains'} onClick={onClose} />
+                  {!isTrafficOnly && <SidebarItem to="/pagamentos-semanais" icon="payments" label="Taxas Semanais" active={currentPath === 'pagamentos-semanais'} onClick={onClose} />}
+                  {!isTrafficOnly && <SidebarItem to="/domains" icon="language" label="Domínios & Web" active={currentPath === 'domains'} onClick={onClose} />}
                 </SidebarGroup>
               </>
             )}
@@ -239,6 +248,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const MainLayout = () => {
   const { state } = useData();
   const isAdmin = state.currentUser?.role === UserRole.CONEXX_ADMIN;
+  const isTrafficOnly = state.activeTenant?.businessType === 'traffic-management';
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
 
   return (
@@ -260,7 +270,7 @@ const MainLayout = () => {
       <main className="lg:ml-64 flex-1 p-6 lg:p-10 min-h-screen pb-24 lg:pb-10">
         <div className="max-w-screen-2xl mx-auto">
           <Routes>
-            <Route path="/" element={isAdmin ? <AdminDashboard /> : <Dashboard />} />
+            <Route path="/" element={isAdmin ? <AdminDashboard /> : isTrafficOnly ? <AdsAnalytics /> : <Dashboard />} />
             <Route path="/admin/statement" element={<AdminStatement />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/faturamento/ads" element={<AdsAnalytics />} />
@@ -291,6 +301,7 @@ const MainLayout = () => {
             <Route path="/pagamentos-semanais" element={<WeeklyFees />} />
             <Route path="/admin/metrics" element={<AdminMetrics />} />
             <Route path="/admin/metrics/:id" element={<TenantMetricsDetails />} />
+            <Route path="/team" element={<TeamManagement />} />
             <Route path="/tenants/:id" element={<TenantDetails />} />
           </Routes>
         </div>

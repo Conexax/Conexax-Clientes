@@ -28,7 +28,7 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Initialize Admin Client for server-side operations (bypassing RLS)
-const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || SUPABASE_KEY;
 const supabaseAdmin = SUPABASE_SERVICE_ROLE ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE) : null;
 
 
@@ -587,13 +587,13 @@ app.post('/api/admin/weekly-fees/calculate', async (req, res) => {
 
           // 3. Fetch Revenue for that specific week
           const { data: orders } = await supabase.from('orders')
-            .select('total_value')
+            .select('value, total_value')
             .eq('tenant_id', tenant.id)
-            .gte('order_date', weekStartStr)
-            .lte('order_date', weekEndStr)
-            .in('status', ['APROVADO', 'paid', 'approved']);
+            .gte('date', weekStartStr)
+            .lte('date', weekEndStr)
+            .in('status', ['APROVADO', 'paid', 'approved', 'succes', 'COMPLETO']);
 
-          const weeklyRevenue = orders?.reduce((sum, o) => sum + (Number(o.total_value) || 0), 0) || 0;
+          const weeklyRevenue = orders?.reduce((sum, o) => sum + (Number(o.value || o.total_value) || 0), 0) || 0;
           const amountDue = weeklyRevenue * (tenant.company_percentage / 100);
 
           if (amountDue <= 0) continue;
@@ -683,13 +683,13 @@ app.post('/api/admin/weekly-fees/preview', async (req, res) => {
         if (!tenant.company_percentage || tenant.company_percentage <= 0) continue;
 
         const { data: orders } = await supabase.from('orders')
-          .select('total_value')
+          .select('value, total_value')
           .eq('tenant_id', tenant.id)
-          .gte('order_date', weekStartStr)
-          .lte('order_date', weekEndStr)
-          .in('status', ['APROVADO', 'paid', 'approved']);
+          .gte('created_at', weekStartStr)
+          .lte('created_at', weekEndStr)
+          .in('status', ['APROVADO', 'paid', 'approved', 'succes', 'COMPLETO']);
 
-        const weeklyRevenue = orders?.reduce((sum, o) => sum + (Number(o.total_value) || 0), 0) || 0;
+        const weeklyRevenue = orders?.reduce((sum, o) => sum + (Number(o.value || o.total_value) || 0), 0) || 0;
         const amountDue = weeklyRevenue * (tenant.company_percentage / 100);
 
         if (amountDue > 0) {
@@ -1570,51 +1570,6 @@ async function calculateRevenuePerTenant(startDate, endDate) {
   return results;
 }
 
-app.post('/api/admin/weekly-fees/preview', async (req, res) => {
-  try {
-    const { startDate, endDate } = req.body;
-    if (!startDate || !endDate) return res.status(400).send({ error: 'startDate and endDate required' });
-
-    const results = await calculateRevenuePerTenant(startDate, endDate);
-    return res.json({ data: results });
-
-  } catch (err) {
-    console.error('Preview fees error:', err);
-    return res.status(500).send({ error: 'Failed to calculate preview.' });
-  }
-});
-
-app.post('/api/admin/weekly-fees/calculate', async (req, res) => {
-  try {
-    const { startDate, endDate } = req.body;
-    if (!startDate || !endDate) return res.status(400).send({ error: 'startDate and endDate required' });
-
-    const results = await calculateRevenuePerTenant(startDate, endDate);
-    const db = supabaseAdmin || supabase;
-
-    let createdCount = 0;
-    for (const item of results) {
-      // Upsert weekly fee record
-      const { error } = await db.from('weekly_fees').upsert({
-        tenant_id: item.tenantId,
-        week_start: startDate,
-        week_end: endDate,
-        revenue_week: item.revenue,
-        percent_applied: item.percentage,
-        amount_due: item.amountDue,
-        status: 'pending' // Default status
-      }, { onConflict: 'tenant_id, week_start' }); // Assuming unique constraint on (tenant_id, week_start)
-
-      if (!error) createdCount++;
-    }
-
-    return res.json({ success: true, created: createdCount });
-
-  } catch (err) {
-    console.error('Calculate fees error:', err);
-    return res.status(500).send({ error: 'Failed to generate fees.' });
-  }
-});
 
 /**
  * POST /api/admin/weekly-fees/:id/pay
@@ -1945,7 +1900,7 @@ app.get('/api/admin/metrics/tenants/:id', async (req, res) => {
 
     // 3. Fetch Live Revenue Chart Data (Daily)
     let ordersQuery = db.from('orders')
-      .select('order_date, gross_value')
+      .select('date, value')
       .eq('tenant_id', id)
       .eq('status', 'APROVADO');
 
@@ -1953,14 +1908,14 @@ app.get('/api/admin/metrics/tenants/:id', async (req, res) => {
     const start = startDate || new Date(new Date().setMonth(new Date().getMonth() - 6)).toISOString();
     const end = endDate || new Date().toISOString();
 
-    ordersQuery = ordersQuery.gte('order_date', start).lte('order_date', end);
+    ordersQuery = ordersQuery.gte('date', start).lte('date', end);
 
     const { data: orders } = await ordersQuery;
 
     const revenueByDay = {};
     (orders || []).forEach(o => {
-      const day = (o.order_date || '').split('T')[0];
-      if (day) revenueByDay[day] = (revenueByDay[day] || 0) + Number(o.gross_value || 0);
+      const day = (o.date || '').split('T')[0];
+      if (day) revenueByDay[day] = (revenueByDay[day] || 0) + Number(o.value || 0);
     });
 
     // Sort by date
@@ -1979,6 +1934,156 @@ app.get('/api/admin/metrics/tenants/:id', async (req, res) => {
   } catch (err) {
     console.error('Tenant details error:', err);
     res.status(500).send({ error: 'Failed to fetch tenant details.' });
+  }
+});
+
+// ==========================================
+// TEAM MANAGEMENT (Lojistas)
+// ==========================================
+
+app.get('/api/team/:tenantId', async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const db = supabaseAdmin || supabase;
+
+    // Lista apenas usuários atrelados ao tenant (exceto o dev se quiser, ou todos).
+    const { data: users, error } = await db.from('users')
+      .select('id, name, email, role, business_type, created_at')
+      .eq('tenant_id', tenantId);
+
+    if (error) throw error;
+    res.json(users);
+  } catch (err) {
+    console.error('Fetch team error:', err);
+    res.status(500).send({ error: 'Erro ao buscar equipe' });
+  }
+});
+
+app.post('/api/team', async (req, res) => {
+  try {
+    const { tenantId, name, email, password, role } = req.body;
+
+    if (!supabaseAdmin) {
+      return res.status(500).send({ error: 'Service Role Key não configurada no servidor.' });
+    }
+
+    // 1. Criar Auth User
+    const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name, role: role || 'user' }
+    });
+
+    if (authErr && authErr.message.includes('already exists')) {
+      return res.status(400).send({ error: 'Este e-mail já está em uso.' });
+    }
+    if (authErr) throw authErr;
+
+    const userId = authData.user.id;
+
+    // 2. Inserir na tabela Users
+    const { data: newUser, error: dbErr } = await supabaseAdmin.from('users').insert({
+      id: userId,
+      email,
+      name,
+      role: role || 'user',
+      tenant_id: tenantId,
+      created_at: new Date().toISOString()
+    }).select().single();
+
+    if (dbErr) {
+      // Rollback se der erro
+      await supabaseAdmin.auth.admin.deleteUser(userId);
+      throw dbErr;
+    }
+
+    res.json(newUser);
+  } catch (err) {
+    console.error('Create team member error:', err);
+    res.status(500).send({ error: 'Erro ao criar membro da equipe' });
+  }
+});
+
+app.delete('/api/team/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!supabaseAdmin) return res.status(500).send({ error: 'Service Role Key ausente.' });
+
+    // 1. Apagar da tabela public.users
+    await supabaseAdmin.from('users').delete().eq('id', userId);
+
+    // 2. Apagar do Auth
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete team member error:', err);
+    res.status(500).send({ error: 'Erro ao remover membro' });
+  }
+});
+
+// ==========================================
+// ADMIN PLANS (Service Role required/Fallback)
+// ==========================================
+
+app.post('/api/admin/plans', async (req, res) => {
+  try {
+    const dbClient = supabaseAdmin || supabase;
+    const payload = req.body;
+
+    let { data, error } = await dbClient.from('plans').upsert(payload).select().single();
+
+    if (error && error.code === '42501') {
+      console.warn("Plano upsert bloqueado por RLS. Tentando bypass RPC admin_upsert_plan se existir...");
+
+      // Tentativa de usar uma RPC não mapeada se existir
+      const { data: rpcData, error: rpcError } = await dbClient.rpc('admin_upsert_plan', {
+        _id: payload.id || null,
+        _name: payload.name,
+        _price_quarterly: payload.price_quarterly,
+        _price_semiannual: payload.price_semiannual,
+        _price_yearly: payload.price_yearly
+      });
+
+      if (!rpcError && rpcData) {
+        return res.json(rpcData);
+      }
+
+      res.status(500).send({ error: "Permissão Negada (RLS) no Supabase. Para criar planos, você precisa adicionar a variável SUPABASE_SERVICE_ROLE_KEY no seu arquivo .env.server ou desativar o RLS da tabela 'plans' temporariamente." });
+      return;
+    } else if (error) {
+      console.error('Supabase error saving plan:', error);
+      throw error;
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error('Save plan error:', error);
+    res.status(500).send({ error: 'Erro interno ao salvar plano', details: error.message });
+  }
+});
+
+app.delete('/api/admin/plans/:id', async (req, res) => {
+  try {
+    const dbClient = supabaseAdmin || supabase;
+    const { id } = req.params;
+
+    const { error } = await dbClient.from('plans').delete().eq('id', id);
+
+    if (error && error.code === '42501') {
+      console.warn("Plano delete bloqueado por RLS.");
+      res.status(500).send({ error: "Permissão Negada (RLS). Configurar chave Service Role." });
+      return;
+    } else if (error) {
+      console.error('Supabase error deleting plan:', error);
+      throw error;
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete plan error:', error);
+    res.status(500).send({ error: 'Erro interno ao excluir plano', details: error.message });
   }
 });
 
