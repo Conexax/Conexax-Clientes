@@ -3,7 +3,9 @@ import { askForNotificationPermission } from '../utils/push';
 import { toast } from 'react-hot-toast';
 
 const NotificationCenter: React.FC = () => {
-    const [permission, setPermission] = useState(Notification.permission);
+    const [permission, setPermission] = useState<NotificationPermission>(
+        typeof Notification !== 'undefined' ? Notification.permission : 'default'
+    );
 
     const handleEnablePush = async () => {
         if (permission === 'granted') {

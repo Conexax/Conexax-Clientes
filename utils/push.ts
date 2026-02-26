@@ -13,8 +13,8 @@ export async function registerServiceWorker() {
 }
 
 export async function askForNotificationPermission() {
-    if (!('Notification' in window)) {
-        console.log('This browser does not support desktop notification');
+    if (typeof Notification === 'undefined') {
+        console.log('This browser does not support desktop notifications');
         return 'denied';
     }
 
@@ -23,7 +23,7 @@ export async function askForNotificationPermission() {
 }
 
 export function sendMockPush(title: string, message: string) {
-    if (Notification.permission === 'granted') {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         navigator.serviceWorker.ready.then(registration => {
             // Since we can't really push from server without VAPID keys in this mock,
             // we use showNotification directly from the registration.
