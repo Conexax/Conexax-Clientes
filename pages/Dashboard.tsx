@@ -278,9 +278,7 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
           </div>
 
           {mobileHeaderNode && createPortal(
-            <div className="md:hidden">
-              <DateRangeFilter onFilterChange={(start, end) => setDateRange({ startDate: start.toISOString(), endDate: end.toISOString() })} />
-            </div>,
+            <DateRangeFilter onFilterChange={(start, end) => setDateRange({ startDate: start.toISOString(), endDate: end.toISOString() })} />,
             mobileHeaderNode
           )}
 

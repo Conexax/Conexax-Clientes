@@ -124,9 +124,7 @@ const AdminDashboard: React.FC = () => {
           </div>
 
           {mobileHeaderNode && createPortal(
-            <div className="lg:hidden">
-              <DateRangeFilter onFilterChange={handleFilterChange} />
-            </div>,
+            <DateRangeFilter onFilterChange={handleFilterChange} />,
             mobileHeaderNode
           )}
         </div>
