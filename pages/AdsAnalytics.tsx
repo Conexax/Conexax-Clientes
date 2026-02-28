@@ -7,7 +7,9 @@ import { toast } from 'react-hot-toast';
 const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenantId }) => {
     const { state } = useData();
     const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState<'meta' | 'google'>('meta');
+    const [activeTab, setActiveTab] = useState<'meta' | 'google' | 'total'>('meta');
+    const [metaConfigured, setMetaConfigured] = useState<boolean | null>(null); // null = unknown, true = ok, false = not configured
+    const [googleConfigured, setGoogleConfigured] = useState<boolean | null>(null);
 
     // Estado detalhado das métricas
     const [metaMetrics, setMetaMetrics] = useState({
@@ -29,7 +31,8 @@ const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenan
         const fetchMetrics = async () => {
             setLoading(true);
             try {
-                const tenantId = explicitTenantId || state.currentUser?.tenantId;
+                const tenantId = explicitTenantId || state.currentUser?.tenantId || state.activeTenant?.id;
+                console.log('[AdsAnalytics] Resolved tenantId:', tenantId, '| explicitTenantId:', explicitTenantId, '| currentUser.tenantId:', state.currentUser?.tenantId, '| activeTenant.id:', state.activeTenant?.id);
 
                 // Fetching real endpoints (they might return limited data now, so we merge with realistic fallbacks if empty)
                 const [metaRes, gaRes] = await Promise.allSettled([
@@ -45,23 +48,38 @@ const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenan
                 if (metaRes.status === 'fulfilled') {
                     if (metaRes.value.ok) {
                         fetchedMeta = await metaRes.value.json();
+                        setMetaConfigured(true);
                     } else {
                         const errData = await metaRes.value.json().catch(() => ({ error: 'Erro desconhecido na Meta' }));
-                        if (errData.error) toast.error(`Meta: ${errData.error}`, { id: 'meta-error' });
+                        if (errData.data === null) {
+                            // Not configured — show UI state, not a toast
+                            setMetaConfigured(false);
+                        } else if (errData.error) {
+                            toast.error(`Meta: ${errData.error}`, { id: 'meta-error' });
+                            setMetaConfigured(false);
+                        }
                     }
                 } else {
                     console.error("Meta promise rejected:", metaRes.reason);
+                    setMetaConfigured(false);
                 }
 
                 if (gaRes.status === 'fulfilled') {
                     if (gaRes.value.ok) {
                         fetchedGa = await gaRes.value.json();
+                        setGoogleConfigured(true);
                     } else {
                         const errData = await gaRes.value.json().catch(() => ({ error: 'Erro desconhecido no Google' }));
-                        if (errData.error) toast.error(`Google: ${errData.error}`, { id: 'ga-error' });
+                        if (errData.data === null) {
+                            setGoogleConfigured(false);
+                        } else if (errData.error) {
+                            toast.error(`Google: ${errData.error}`, { id: 'ga-error' });
+                            setGoogleConfigured(false);
+                        }
                     }
                 } else {
                     console.error("GA promise rejected:", gaRes.reason);
+                    setGoogleConfigured(false);
                 }
 
                 console.log("Fetched Meta JSON:", fetchedMeta);
@@ -152,10 +170,10 @@ const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenan
             }
         };
 
-        if (explicitTenantId || state.currentUser?.tenantId) {
+        if (explicitTenantId || state.currentUser?.tenantId || state.activeTenant?.id) {
             fetchMetrics();
         }
-    }, [explicitTenantId, state.currentUser?.tenantId, dateRange]);
+    }, [explicitTenantId, state.currentUser?.tenantId, state.activeTenant?.id, dateRange]);
 
     const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
     const formatNumber = (val: number) => new Intl.NumberFormat('pt-BR').format(val);
@@ -230,6 +248,12 @@ const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenan
                         >
                             Google/GA4
                         </button>
+                        <button
+                            onClick={() => setActiveTab('total')}
+                            className={`px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'total' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            Total (Geral)
+                        </button>
                     </div>
                     <div className="w-full sm:w-auto">
                         <DateRangeFilter
@@ -250,43 +274,37 @@ const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenan
                 <div className="space-y-6">
                     {activeTab === 'meta' && (
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-                                <MetricCard
-                                    title="Valor Gasto"
-                                    value={formatCurrency(metaMetrics.spend)}
-                                    icon="payments" colorClass="text-fuchsia-400" gradient="bg-fuchsia-500"
-                                />
-                                <MetricCard
-                                    title="ROAS de Compras"
-                                    value={`${metaMetrics.roas.toFixed(2)}x`}
-                                    icon="rocket_launch" colorClass={metaMetrics.roas >= 2 ? "text-emerald-400" : "text-amber-400"} gradient={metaMetrics.roas >= 2 ? "bg-emerald-500" : "bg-amber-500"}
-                                    subtitle="Retorno sobre investimento"
-                                />
-                                <MetricCard
-                                    title="Compras"
-                                    value={formatNumber(metaMetrics.purchases)}
-                                    icon="shopping_bag" colorClass="text-indigo-400" gradient="bg-indigo-500"
-                                    subtitle={`CPA: ${formatCurrency(metaMetrics.cpa)}`}
-                                />
-                                <MetricCard
-                                    title="Custo por Clique (CPC)"
-                                    value={formatCurrency(metaMetrics.cpc)}
-                                    icon="ads_click" colorClass="text-blue-400" gradient="bg-blue-500"
-                                    subtitle={`${formatNumber(metaMetrics.clicks)} Cliques no link`}
-                                />
-                                <MetricCard
-                                    title="Custo por Mil (CPM)"
-                                    value={formatCurrency(metaMetrics.cpm)}
-                                    icon="visibility" colorClass="text-purple-400" gradient="bg-purple-500"
-                                />
-                                <MetricCard
-                                    title="CTR (Todos)"
-                                    value={`${metaMetrics.ctr.toFixed(2)}%`}
-                                    icon="touch_app" colorClass="text-rose-400" gradient="bg-rose-500"
-                                />
-                            </div>
+                            {metaConfigured === false ? (
+                                <div className="glass-panel rounded-[32px] border border-white/5 p-12 flex flex-col items-center justify-center text-center gap-6 relative overflow-hidden">
+                                    <div className="absolute inset-0 bg-gradient-to-br from-fuchsia-500/5 to-purple-500/5 pointer-events-none" />
+                                    <div className="w-20 h-20 rounded-3xl bg-fuchsia-500/10 border border-fuchsia-500/20 flex items-center justify-center relative z-10">
+                                        <span className="material-symbols-outlined text-4xl text-fuchsia-400">analytics</span>
+                                    </div>
+                                    <div className="relative z-10">
+                                        <h3 className="text-2xl font-black text-white mb-2">Meta Ads não configurado</h3>
+                                        <p className="text-slate-400 text-sm max-w-md">
+                                            As credenciais do Meta Business Manager (Ad Account ID e Access Token) não estão conectadas para esta loja.
+                                            Peça ao seu administrador para configurar em <span className="text-fuchsia-400 font-bold">Configurações → Integrações</span>.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-fuchsia-500/10 border border-fuchsia-500/20 rounded-2xl px-6 py-3 relative z-10">
+                                        <span className="material-symbols-outlined text-fuchsia-400 text-sm">info</span>
+                                        <span className="text-fuchsia-300 text-xs font-bold">Necessário: Ad Account ID + Access Token do Meta Business Manager</span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                                    <MetricCard title="Valor Gasto" value={formatCurrency(metaMetrics.spend)} icon="payments" colorClass="text-fuchsia-400" gradient="bg-fuchsia-500" />
+                                    <MetricCard title="ROAS de Compras" value={`${metaMetrics.roas.toFixed(2)}x`} icon="rocket_launch" colorClass={metaMetrics.roas >= 2 ? "text-emerald-400" : "text-amber-400"} gradient={metaMetrics.roas >= 2 ? "bg-emerald-500" : "bg-amber-500"} subtitle="Retorno sobre investimento" />
+                                    <MetricCard title="Compras" value={formatNumber(metaMetrics.purchases)} icon="shopping_bag" colorClass="text-indigo-400" gradient="bg-indigo-500" subtitle={`CPA: ${formatCurrency(metaMetrics.cpa)}`} />
+                                    <MetricCard title="Custo por Clique (CPC)" value={formatCurrency(metaMetrics.cpc)} icon="ads_click" colorClass="text-blue-400" gradient="bg-blue-500" subtitle={`${formatNumber(metaMetrics.clicks)} Cliques no link`} />
+                                    <MetricCard title="Custo por Mil (CPM)" value={formatCurrency(metaMetrics.cpm)} icon="visibility" colorClass="text-purple-400" gradient="bg-purple-500" />
+                                    <MetricCard title="CTR (Todos)" value={`${metaMetrics.ctr.toFixed(2)}%`} icon="touch_app" colorClass="text-rose-400" gradient="bg-rose-500" />
+                                </div>
+                            )}
                         </div>
                     )}
+
 
                     {activeTab === 'google' && (
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -322,7 +340,67 @@ const AdsAnalytics: React.FC<{ tenantId?: string }> = ({ tenantId: explicitTenan
                         </div>
                     )}
 
-                    {/* Daily Historical Chart area */}
+                    {activeTab === 'total' && (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            {/* Summary banner */}
+                            <div className="glass-panel rounded-[32px] border border-emerald-500/10 p-6 mb-6 flex items-center gap-4 bg-emerald-500/5">
+                                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                                    <span className="material-symbols-outlined text-emerald-400 text-xl">bar_chart</span>
+                                </div>
+                                <div>
+                                    <p className="text-emerald-300 text-xs font-black uppercase tracking-widest">Total Consolidado</p>
+                                    <p className="text-slate-400 text-xs mt-0.5">Soma de todos os canais de tráfego pago no período selecionado</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                                <MetricCard
+                                    title="Total Gasto (Meta + Google)"
+                                    value={formatCurrency((metaConfigured ? metaMetrics.spend : 0) + (googleConfigured ? googleMetrics.spend : 0))}
+                                    icon="payments" colorClass="text-emerald-400" gradient="bg-emerald-500"
+                                    subtitle={`Meta: ${formatCurrency(metaConfigured ? metaMetrics.spend : 0)} | Google: ${formatCurrency(googleConfigured ? googleMetrics.spend : 0)}`}
+                                />
+                                <MetricCard
+                                    title="Total Cliques"
+                                    value={formatNumber((metaConfigured ? metaMetrics.clicks : 0))}
+                                    icon="ads_click" colorClass="text-fuchsia-400" gradient="bg-fuchsia-500"
+                                    subtitle={`CPC Médio: ${formatCurrency(metaConfigured && metaMetrics.clicks > 0 ? metaMetrics.spend / metaMetrics.clicks : 0)}`}
+                                />
+                                <MetricCard
+                                    title="Total Conversões"
+                                    value={formatNumber((metaConfigured ? metaMetrics.purchases : 0) + (googleConfigured ? googleMetrics.conversions : 0))}
+                                    icon="shopping_bag" colorClass="text-indigo-400" gradient="bg-indigo-500"
+                                    subtitle={`CPA: ${formatCurrency(
+                                        (() => {
+                                            const totalConv = (metaConfigured ? metaMetrics.purchases : 0) + (googleConfigured ? googleMetrics.conversions : 0);
+                                            const totalSpend = (metaConfigured ? metaMetrics.spend : 0) + (googleConfigured ? googleMetrics.spend : 0);
+                                            return totalConv > 0 ? totalSpend / totalConv : 0;
+                                        })()
+                                    )}`}
+                                />
+                                <MetricCard
+                                    title="ROAS Geral"
+                                    value={`${metaConfigured && metaMetrics.roas > 0 ? metaMetrics.roas.toFixed(2) : '0.00'}x`}
+                                    icon="rocket_launch"
+                                    colorClass={metaMetrics.roas >= 2 ? 'text-emerald-400' : 'text-amber-400'}
+                                    gradient={metaMetrics.roas >= 2 ? 'bg-emerald-500' : 'bg-amber-500'}
+                                    subtitle="Retorno sobre investimento (Meta)"
+                                />
+                                {metaConfigured && (
+                                    <>
+                                        <MetricCard title="CPM (Meta)" value={formatCurrency(metaMetrics.cpm)} icon="visibility" colorClass="text-purple-400" gradient="bg-purple-500" />
+                                        <MetricCard title="CTR (Meta)" value={`${metaMetrics.ctr.toFixed(2)}%`} icon="touch_app" colorClass="text-rose-400" gradient="bg-rose-500" />
+                                    </>
+                                )}
+                                {googleConfigured && (
+                                    <>
+                                        <MetricCard title="Sessões (GA4)" value={formatNumber(googleMetrics.sessions)} icon="public" colorClass="text-blue-400" gradient="bg-blue-500" />
+                                        <MetricCard title="Taxa de Rejeição" value={`${googleMetrics.bounceRate.toFixed(2)}%`} icon="move_up" colorClass="text-slate-400" gradient="bg-slate-500" />
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="glass-panel p-6 lg:p-8 rounded-[32px] border border-white/5 mt-8">
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                             <div>

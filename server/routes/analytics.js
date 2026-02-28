@@ -3,20 +3,36 @@ import { createClient } from '@supabase/supabase-js';
 import { BetaAnalyticsDataClient } from '@google-analytics/data';
 
 const router = express.Router();
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-);
+
+// Lazy supabase client - ensures dotenv has been loaded before creating the client
+let _supabase = null;
+function getSupabase() {
+    if (!_supabase) {
+        const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+        const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_KEY;
+        console.log('[Analytics] Initializing Supabase client. URL defined:', !!url, 'KEY defined:', !!key);
+        _supabase = createClient(url, key);
+    }
+    return _supabase;
+}
 
 // Fetches actual Meta Ads Metrics from Graph API
 router.get('/meta/metrics', async (req, res) => {
     try {
+        const supabase = getSupabase();
         const { tenantId, startDate, endDate } = req.query;
         if (!tenantId) return res.status(400).json({ error: 'Tenant ID required' });
 
+        console.log(`[Meta Analytics] Fetching metrics for tenant: ${tenantId}, range: ${startDate} to ${endDate}`);
+
         // Retrieve the Tenant from DB to get the tokens
         const { data: tenant, error } = await supabase.from('tenants').select('meta_access_token, meta_ad_account_id').eq('id', tenantId).single();
-        if (error || !tenant) return res.status(404).json({ error: 'Tenant not found.' });
+        if (error || !tenant) {
+            console.error('[Meta Analytics] Tenant not found or DB error:', error?.message);
+            return res.status(404).json({ error: 'Tenant not found.' });
+        }
+
+        console.log(`[Meta Analytics] Tenant found. Account ID: ${tenant.meta_ad_account_id ? '✅ SET' : '❌ MISSING'}, Token: ${tenant.meta_access_token ? '✅ SET' : '❌ MISSING'}`);
 
         if (!tenant.meta_ad_account_id || !tenant.meta_access_token) {
             return res.status(400).json({ error: 'Meta Ads integration not fully configured for this tenant.', data: null });
@@ -29,11 +45,21 @@ router.get('/meta/metrics', async (req, res) => {
         try {
             const adAccountId = tenant.meta_ad_account_id.startsWith('act_') ? tenant.meta_ad_account_id : `act_${tenant.meta_ad_account_id}`;
             const fields = 'spend,clicks,cpc,cpm,ctr,actions,action_values,impressions';
-            // Added time_increment=1 for daily breakdown
-            const fbUrl = `https://graph.facebook.com/v19.0/${adAccountId}/insights?time_range={'since':'${startDate}','until':'${endDate}'}&fields=${fields}&time_increment=1&access_token=${tenant.meta_access_token}`;
+
+            // Use proper URL encoding for the time_range JSON object
+            const timeRange = encodeURIComponent(JSON.stringify({ since: startDate, until: endDate }));
+            const fbUrl = `https://graph.facebook.com/v19.0/${adAccountId}/insights?time_range=${timeRange}&fields=${fields}&time_increment=1&access_token=${tenant.meta_access_token}`;
+
+            console.log(`[Meta Analytics] Calling Graph API: act_${adAccountId.replace('act_', '')} | ${startDate} → ${endDate}`);
 
             const response = await fetch(fbUrl);
             const json = await response.json();
+
+            console.log('[Meta Analytics] Graph API response status:', response.status, '| data rows:', json.data?.length ?? 0);
+            if (json.error) {
+                console.error('[Meta Analytics] Graph API error:', JSON.stringify(json.error));
+                return res.status(400).json({ error: `Meta API Error: ${json.error.message}`, status: 'error' });
+            }
 
             if (json.data && json.data.length > 0) {
                 json.data.forEach(insights => {
@@ -67,12 +93,13 @@ router.get('/meta/metrics', async (req, res) => {
                     metaData.cpm = totalImpressions > 0 ? Number((metaData.spend / (totalImpressions / 1000)).toFixed(2)) : 0;
                     metaData.ctr = json.data.reduce((acc, i) => acc + parseFloat(i.ctr || 0), 0) / json.data.length;
                 }
-            } else if (json.error) {
-                console.error("Meta Graph API returned error:", json.error);
-                return res.status(400).json({ error: `Meta API Error: ${json.error.message}`, status: 'error' });
+
+                console.log(`[Meta Analytics] Processed: spend=R$${metaData.spend.toFixed(2)}, clicks=${metaData.clicks}, conversions=${metaData.conversions}`);
+            } else {
+                console.warn('[Meta Analytics] Graph API returned 0 data rows. The account may have no activity in this period.');
             }
         } catch (fbErr) {
-            console.error("Meta Graph API fetch exception:", fbErr);
+            console.error("[Meta Analytics] Graph API fetch exception:", fbErr);
         }
 
         res.json({
@@ -88,6 +115,7 @@ router.get('/meta/metrics', async (req, res) => {
 // Implementation for fetching real GA4 Metrics
 router.get('/google/metrics', async (req, res) => {
     try {
+        const supabase = getSupabase();
         const { tenantId, startDate, endDate } = req.query;
         if (!tenantId) return res.status(400).json({ error: 'Tenant ID required' });
 
