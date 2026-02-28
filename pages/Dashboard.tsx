@@ -59,10 +59,18 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
     const fetchAds = async () => {
       setAdsMetrics(p => ({ ...p, isLoading: true }));
       try {
-        const targetTenant = tenantId || state.currentUser?.tenantId;
+        const targetTenant = tenantId || state.activeTenant?.id || state.currentUser?.tenantId;
+        if (!targetTenant) {
+          setAdsMetrics({ metaSpend: 0, googleSpend: 0, isLoading: false });
+          return;
+        }
+        // API expects YYYY-MM-DD format, not full ISO timestamp
+        const startDate = dateRange.startDate.split('T')[0];
+        const endDate = dateRange.endDate.split('T')[0];
+
         const [metaRes, gaRes] = await Promise.allSettled([
-          fetch(`/api/analytics/meta/metrics?tenantId=${targetTenant}&startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`),
-          fetch(`/api/analytics/google/metrics?tenantId=${targetTenant}&startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`)
+          fetch(`/api/analytics/meta/metrics?tenantId=${targetTenant}&startDate=${startDate}&endDate=${endDate}`),
+          fetch(`/api/analytics/google/metrics?tenantId=${targetTenant}&startDate=${startDate}&endDate=${endDate}`)
         ]);
 
         let mSpend = 0;
@@ -83,8 +91,9 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
         setAdsMetrics({ metaSpend: 0, googleSpend: 0, isLoading: false });
       }
     };
-    if (state.currentUser) fetchAds();
-  }, [dateRange, tenantId, state.currentUser]);
+    if (state.currentUser || state.activeTenant) fetchAds();
+  }, [dateRange, tenantId, state.currentUser, state.activeTenant?.id]);
+
 
   // --- Data Processing ---
 
