@@ -1687,8 +1687,94 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (error) throw error;
         setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
       } catch (e) { console.error(e); }
+    },
+
+    // Team Management
+    fetchTeam: async () => {
+      try {
+        const tenantId = state.activeTenant?.id || state.currentUser?.tenantId;
+        if (!tenantId) return;
+        // Fetch all users for this tenant EXCEPT the current user (owner)
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, name, email, role, tenant_id')
+          .eq('tenant_id', tenantId)
+          .neq('id', state.currentUser?.id || '');
+        if (error) throw error;
+        setState(prev => ({ ...prev, team: (data || []).map(mapUserFromDB) }));
+      } catch (e: any) {
+        console.error('fetchTeam error:', e);
+      }
+    },
+
+    addTeamMember: async (payload: { name: string; email: string; password: string; role: string }) => {
+      try {
+        const tenantId = state.activeTenant?.id || state.currentUser?.tenantId;
+        if (!tenantId) throw new Error('Tenant não identificado.');
+
+        const normalizedEmail = payload.email.trim().toLowerCase();
+
+        // Check if email is already in use
+        const { data: existing } = await supabase
+          .from('users')
+          .select('id, tenant_id')
+          .eq('email', normalizedEmail)
+          .single();
+
+        if (existing) {
+          if (existing.tenant_id === tenantId) throw new Error('Este email já está cadastrado na sua equipe.');
+          throw new Error('Este email já está em uso por outra loja.');
+        }
+
+        // Create user with CLIENT_USER role linked to this tenant
+        const { data: newUser, error } = await supabase
+          .from('users')
+          .insert({
+            name: payload.name.trim(),
+            email: normalizedEmail,
+            password: payload.password,
+            role: UserRole.CLIENT_USER,
+            tenant_id: tenantId
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        setState(prev => ({ ...prev, team: [...prev.team, mapUserFromDB(newUser)] }));
+      } catch (e: any) {
+        console.error('addTeamMember error:', e);
+        throw e;
+      }
+    },
+
+    deleteTeamMember: async (userId: string) => {
+      try {
+        const tenantId = state.activeTenant?.id || state.currentUser?.tenantId;
+        // Safety: only delete users from same tenant and only CLIENT_USER/manager roles
+        const { data: userToDelete } = await supabase
+          .from('users')
+          .select('id, tenant_id, role')
+          .eq('id', userId)
+          .single();
+
+        if (!userToDelete) throw new Error('Usuário não encontrado.');
+        if (userToDelete.tenant_id !== tenantId) throw new Error('Acesso negado.');
+        if (userToDelete.role === UserRole.CONEXX_ADMIN || userToDelete.role === UserRole.CLIENT_ADMIN) {
+          throw new Error('Não é possível remover o proprietário da loja.');
+        }
+
+        const { error } = await supabase.from('users').delete().eq('id', userId);
+        if (error) throw error;
+
+        setState(prev => ({ ...prev, team: prev.team.filter(m => m.id !== userId) }));
+      } catch (e: any) {
+        console.error('deleteTeamMember error:', e);
+        throw e;
+      }
     }
   }), [state.activeTenant?.id, state.currentUser?.id, initialSyncRequested]);
+
 
   // Trigger initial sync once after restoreSession if requested and tenant present
   useEffect(() => {

@@ -253,6 +253,10 @@ export interface AppState {
   asaasCustomers?: AsaasCustomer[];
   paymentRequests?: PaymentRequest[];
   weeklyFees?: WeeklyFee[];
+  sales?: any[];
+  incomes?: any[];
+  outcomes?: any[];
+  team: User[];
 }
 
 export interface PaymentRequest {
