@@ -34,12 +34,14 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
   const { state, actions, isSyncing } = useData();
 
   const [dateRange, setDateRange] = useState({
-    startDate: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString(), // Default last 30 days
+    startDate: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString(),
     endDate: new Date().toISOString()
   });
 
   const [mobileHeaderNode, setMobileHeaderNode] = useState<HTMLElement | null>(null);
   const [adsMetrics, setAdsMetrics] = useState({ metaSpend: 0, googleSpend: 0, isLoading: false });
+  const [nextRefresh, setNextRefresh] = useState(60); // countdown in seconds
+  const REFRESH_INTERVAL = 60; // seconds
 
   // Fetch updated orders and goals when the component mounts
   useEffect(() => {
@@ -53,6 +55,38 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
     };
     loadGoals();
   }, [actions]);
+
+  // Real-time Yampi polling: auto-refresh orders every 60s
+  useEffect(() => {
+    if (readOnly) return; // Don't poll in read-only admin view
+    setNextRefresh(REFRESH_INTERVAL);
+
+    // Countdown timer (visual only)
+    const countdownTimer = setInterval(() => {
+      setNextRefresh(prev => {
+        if (prev <= 1) return REFRESH_INTERVAL;
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Data refresh
+    const refreshTimer = setInterval(async () => {
+      try {
+        await actions.syncAllOrders();
+        // Also refresh endDate to "now" so metrics include latest data
+        setDateRange(prev => ({ ...prev, endDate: new Date().toISOString() }));
+      } catch (e) {
+        console.error('[Dashboard] Auto-refresh failed:', e);
+      }
+    }, REFRESH_INTERVAL * 1000);
+
+    return () => {
+      clearInterval(countdownTimer);
+      clearInterval(refreshTimer);
+    };
+  }, [readOnly]);
+
+
 
   // Fetch Ads Data for ROI/ROAS calculation
   useEffect(() => {
@@ -298,15 +332,23 @@ const Dashboard: React.FC<{ tenantId?: string, readOnly?: boolean }> = ({ tenant
           )}
 
           {!readOnly && (
-            <button
-              onClick={() => actions.syncYampi()}
-              disabled={isSyncing}
-              className={`w-full md:w-auto px-6 py-3 h-[46px] rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${isSyncing ? 'bg-neutral-800 text-slate-500 cursor-not-allowed border border-white/5' : 'bg-primary text-black hover:bg-primary/90 glow-hover'}`}
-            >
-              <span className={`material-symbols-outlined text-lg ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
-              <span>{isSyncing ? 'Sincronizando...' : 'Atualizar Dados'}</span>
-            </button>
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              {/* Live indicator with countdown */}
+              <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                <span className="text-emerald-400 text-[11px] font-bold whitespace-nowrap">Ao vivo · {nextRefresh}s</span>
+              </div>
+              <button
+                onClick={() => { actions.syncYampi(); setNextRefresh(REFRESH_INTERVAL); }}
+                disabled={isSyncing}
+                className={`w-full md:w-auto px-6 py-3 h-[46px] rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${isSyncing ? 'bg-neutral-800 text-slate-500 cursor-not-allowed border border-white/5' : 'bg-primary text-black hover:bg-primary/90 glow-hover'}`}
+              >
+                <span className={`material-symbols-outlined text-lg ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
+                <span>{isSyncing ? 'Sincronizando...' : 'Atualizar Dados'}</span>
+              </button>
+            </div>
           )}
+
         </div>
       </header>
 
