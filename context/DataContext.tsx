@@ -1468,47 +1468,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     },
 
-    // Team Management
-    fetchTeam: async () => {
-      if (!state.activeTenant) return;
-      try {
-        const response = await fetch(`/api/team/${state.activeTenant.id}`);
-        const data = await response.json();
-        if (response.ok) {
-          setState(prev => ({ ...prev, team: data }));
-        }
-      } catch (err) {
-        console.error('Fetch team err:', err);
-      }
-    },
-    addTeamMember: async (payload: any) => {
-      try {
-        const response = await fetch('/api/team', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...payload, tenantId: state.activeTenant?.id })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Erro ao adicionar membro.');
-        setState(prev => ({ ...prev, team: [...(prev.team || []), data] }));
-      } catch (err: any) {
-        console.error(err);
-        throw err;
-      }
-    },
-    deleteTeamMember: async (userId: string) => {
-      try {
-        const response = await fetch(`/api/team/${userId}`, { method: 'DELETE' });
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || 'Erro ao remover membro.');
-        }
-        setState(prev => ({ ...prev, team: (prev.team || []).filter((u: any) => u.id !== userId) }));
-      } catch (err: any) {
-        console.error(err);
-        throw err;
-      }
-    },
 
     // Categories
     saveCategory: async (cat: Partial<Category>) => {
@@ -1714,12 +1673,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const normalizedEmail = payload.email.trim().toLowerCase();
 
-        // Check if email is already in use
+        // Check if email is already in use (maybeSingle returns null without error when not found)
         const { data: existing } = await supabase
           .from('users')
           .select('id, tenant_id')
           .eq('email', normalizedEmail)
-          .single();
+          .maybeSingle();
 
         if (existing) {
           if (existing.tenant_id === tenantId) throw new Error('Este email já está cadastrado na sua equipe.');
